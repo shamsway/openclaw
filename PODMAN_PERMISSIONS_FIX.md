@@ -5,7 +5,7 @@
 When running `podman-setup.sh`, the onboarding process failed with:
 
 ```
-Error: EACCES: permission denied, mkdir '/home/node/.clawdbot/agents/main/agent'
+Error: EACCES: permission denied, mkdir '/home/node/.openclaw/agents/main/agent'
 exit code: 1
 ```
 
@@ -16,7 +16,7 @@ exit code: 1
 - Host user UID: `2000` (hashi)
 - Container `node` user UID: `1000`
 
-In Podman rootless mode, bind-mounted volumes retain host permissions. When the container tries to write to `/home/node/.clawdbot` (mounted from host `$HOME/.clawdbot`), the container's UID 1000 doesn't match the host directory owner (UID 2000), causing permission denied errors.
+In Podman rootless mode, bind-mounted volumes retain host permissions. When the container tries to write to `/home/node/.openclaw` (mounted from host `$HOME/.openclaw`), the container's UID 1000 doesn't match the host directory owner (UID 2000), causing permission denied errors.
 
 ## Solution
 
@@ -24,10 +24,10 @@ Created `docker-compose.podman.yml` with Podman-specific user namespace mapping:
 
 ```yaml
 services:
-  moltbot-gateway:
+  openclaw-gateway:
     userns_mode: "keep-id:uid=1000,gid=1000"
 
-  moltbot-cli:
+  openclaw-cli:
     userns_mode: "keep-id:uid=1000,gid=1000"
 ```
 
@@ -44,10 +44,10 @@ This tells Podman to:
 
 1. **Clean up partial config:**
    ```bash
-   rm -rf "$HOME/.clawdbot/agents"
-   rm -rf "$HOME/clawd"
-   mkdir -p "$HOME/.clawdbot"
-   mkdir -p "$HOME/clawd"
+   rm -rf "$HOME/.openclaw/agents"
+   rm -rf "$HOME/.openclaw/workspace"
+   mkdir -p "$HOME/.openclaw"
+   mkdir -p "$HOME/.openclaw/workspace"
    ```
 
 2. **Run setup again:**
@@ -63,10 +63,10 @@ After successful setup, verify permissions:
 
 ```bash
 # Check that directories were created
-ls -la "$HOME/.clawdbot/agents"
+ls -la "$HOME/.openclaw/agents"
 
 # Check container can write
-podman-compose run --rm moltbot-cli sh -c "touch /home/node/.clawdbot/test.txt && rm /home/node/.clawdbot/test.txt && echo 'Permissions OK'"
+podman-compose run --rm openclaw-cli sh -c "touch /home/node/.openclaw/test.txt && rm /home/node/.openclaw/test.txt && echo 'Permissions OK'"
 ```
 
 ## Technical Details

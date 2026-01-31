@@ -18,7 +18,7 @@ The `podman unshare` command runs commands in Podman's user namespace, allowing 
 ```
 
 This script:
-- Removes any existing `.clawdbot` and `clawd` directories
+- Removes any existing `.openclaw` and `.openclaw/workspace` directories
 - Creates new directories using `podman unshare`
 - Sets ownership to UID 1000 (mapped to container's `node` user)
 
@@ -34,8 +34,8 @@ When the onboarding wizard asks for paths, use the **CONTAINER paths**, not host
 
 | Question | Use This Path | NOT This |
 |----------|---------------|----------|
-| Config directory | `/home/node/.clawdbot` (default) | `/opt/homelab/data/home/.clawdbot` |
-| Workspace directory | `/home/node/clawd` (default) | `/opt/homelab/data/home/clawd` |
+| Config directory | `/home/node/.openclaw` (default) | `/opt/homelab/data/home/.openclaw` |
+| Workspace directory | `/home/node/.openclaw/workspace` (default) | `/opt/homelab/data/home/.openclaw/workspace` |
 
 **Just press Enter to accept the defaults - they're already correct!**
 
@@ -44,8 +44,8 @@ When the onboarding wizard asks for paths, use the **CONTAINER paths**, not host
 ```
 Host Path                              → Container Path
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-/opt/homelab/data/home/.clawdbot       → /home/node/.clawdbot
-/opt/homelab/data/home/clawd           → /home/node/clawd
+/opt/homelab/data/home/.openclaw       → /home/node/.openclaw
+/opt/homelab/data/home/.openclaw/workspace           → /home/node/.openclaw/workspace
 ```
 
 The container **only sees** the container paths. It doesn't know about the host paths.
@@ -63,15 +63,15 @@ After successful setup:
 
 ```bash
 # Check container can read/write
-podman-compose run --rm moltbot-cli sh -c "
-  ls -la /home/node/.clawdbot &&
-  touch /home/node/.clawdbot/test.txt &&
-  rm /home/node/.clawdbot/test.txt &&
+podman-compose run --rm openclaw-cli sh -c "
+  ls -la /home/node/.openclaw &&
+  touch /home/node/.openclaw/test.txt &&
+  rm /home/node/.openclaw/test.txt &&
   echo 'Permissions OK'
 "
 
 # Check from host (will show subuid ownership)
-ls -la /opt/homelab/data/home/.clawdbot
+ls -la /opt/homelab/data/home/.openclaw
 ```
 
 From the host, you'll see files owned by a high UID (like `165536` or similar) - this is **normal** for Podman rootless. The container sees these as owned by UID 1000.
@@ -83,8 +83,8 @@ From the host, you'll see files owned by a high UID (like `165536` or similar) -
 1. Verify you ran `fix-podman-permissions.sh` first
 2. Check directories exist with subuid ownership:
    ```bash
-   ls -la /opt/homelab/data/home/.clawdbot
-   ls -la /opt/homelab/data/home/clawd
+   ls -la /opt/homelab/data/home/.openclaw
+   ls -la /opt/homelab/data/home/.openclaw/workspace
    ```
    You should see a high UID (not 2000)
 
@@ -100,7 +100,7 @@ If you accidentally entered host paths instead of container paths:
 1. Stop any running containers: `podman-compose down`
 2. Re-run fix script: `./fix-podman-permissions.sh`
 3. Start setup again: `./podman-setup.sh`
-4. Use container paths this time: `/home/node/.clawdbot` and `/home/node/clawd`
+4. Use container paths this time: `/home/node/.openclaw` and `/home/node/.openclaw/workspace`
 
 ### Can't access files from host
 
@@ -108,10 +108,10 @@ This is normal with Podman rootless. Files created by the container will have su
 
 ```bash
 # Read files using podman unshare
-podman unshare cat /opt/homelab/data/home/.clawdbot/moltbot.json
+podman unshare cat /opt/homelab/data/home/.openclaw/openclaw.json
 
 # Or access via container
-podman-compose run --rm moltbot-cli cat /home/node/.clawdbot/moltbot.json
+podman-compose run --rm openclaw-cli cat /home/node/.openclaw/openclaw.json
 ```
 
 ## Alternative: Docker-style Permissions (Not Recommended)

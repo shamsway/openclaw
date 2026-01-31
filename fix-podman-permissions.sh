@@ -4,8 +4,8 @@ set -euo pipefail
 # Fix Podman rootless permissions using podman unshare
 # This creates directories with proper subuid/subgid ownership
 
-CONFIG_DIR="${CLAWDBOT_CONFIG_DIR:-$HOME/.clawdbot}"
-WORKSPACE_DIR="${CLAWDBOT_WORKSPACE_DIR:-$HOME/clawd}"
+CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-$HOME/.openclaw}"
+WORKSPACE_DIR="${OPENCLAW_WORKSPACE_DIR:-$HOME/.openclaw/workspace}"
 
 echo "Fixing permissions for Podman rootless mode..."
 echo "Config dir: $CONFIG_DIR"

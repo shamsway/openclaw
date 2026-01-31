@@ -8,7 +8,7 @@ This guide covers the initial setup flow for deploying Moltbot in a home lab env
 
 ```bash
 # Standard installation (recommended)
-curl -fsSL https://molt.bot/install.sh | bash
+curl -fsSL https://openclaw.ai/install.sh | bash
 
 # Or for your Podman setup
 ./podman-setup.sh
@@ -21,14 +21,14 @@ curl -fsSL https://molt.bot/install.sh | bash
 ### 2. **Onboarding Wizard**
 
 ```bash
-moltbot onboard --install-daemon
+openclaw onboard --install-daemon
 ```
 
 The wizard walks you through:
 - **Gateway selection:** Local (runs on this machine) vs Remote (connect to existing gateway)
 - **Model authentication:**
   - Anthropic OAuth (preferred, browser-based)
-  - Or API key (manual via `~/.clawdbot/agents/<agentId>/agent/auth-profiles.json`)
+  - Or API key (manual via `~/.openclaw/agents/<agentId>/agent/auth-profiles.json`)
 - **Gateway binding:**
   - `loopback` (127.0.0.1 only)
   - `lan` (all interfaces)
@@ -37,7 +37,7 @@ The wizard walks you through:
 - **Gateway auth:** Token (auto-generated) or password
 - **Channel setup:** WhatsApp, Telegram, Discord, Mattermost
 - **DM pairing policy:** Allowlist (approve first contact) or open
-- **Workspace bootstrap:** Creates `~/clawd/` with agent instructions
+- **Workspace bootstrap:** Creates `~/.openclaw/workspace/` with agent instructions
 - **Service installation:** systemd (Linux) or launchd (macOS)
 
 ### 3. **Tailscale Integration**
@@ -47,7 +47,7 @@ Since you're already running Tailscale, you have two excellent options:
 #### **Option A: Tailscale Serve (Tailnet-only, HTTPS)**
 
 ```bash
-moltbot gateway --tailscale serve --port 18789
+openclaw gateway --tailscale serve --port 18789
 ```
 
 - Exposes gateway only to your tailnet devices
@@ -71,7 +71,7 @@ moltbot gateway --tailscale serve --port 18789
 #### **Option B: Direct Tailnet Bind**
 
 ```bash
-moltbot gateway --bind tailnet --port 18789
+openclaw gateway --bind tailnet --port 18789
 ```
 
 - Binds to your Tailscale IP (e.g., 100.x.y.z)
@@ -80,11 +80,11 @@ moltbot gateway --bind tailnet --port 18789
 
 ### 4. **Configuration Location**
 
-All config lives in `~/.clawdbot/`:
+All config lives in `~/.openclaw/`:
 
 ```
-~/.clawdbot/
-├── moltbot.json          # Main config (JSON5)
+~/.openclaw/
+├── openclaw.json          # Main config (JSON5)
 ├── credentials/          # Provider credentials (WhatsApp, Telegram, etc.)
 ├── devices/              # Approved node devices (iOS, Android)
 ├── agents/<agentId>/
@@ -93,7 +93,7 @@ All config lives in `~/.clawdbot/`:
 └── ...
 ```
 
-**Workspace** (where Claude reads/writes): `~/clawd/` by default
+**Workspace** (where Claude reads/writes): `~/.openclaw/workspace/` by default
 
 ### 5. **Channel Setup**
 
@@ -101,13 +101,13 @@ After onboarding, add messaging channels:
 
 ```bash
 # WhatsApp (QR code scan)
-moltbot channels login
+openclaw channels login
 
 # Telegram (bot token from @BotFather)
-moltbot providers add --provider telegram --token <YOUR_BOT_TOKEN>
+openclaw providers add --provider telegram --token <YOUR_BOT_TOKEN>
 
 # Discord (bot token from Discord Developer Portal)
-moltbot providers add --provider discord --token <YOUR_BOT_TOKEN>
+openclaw providers add --provider discord --token <YOUR_BOT_TOKEN>
 ```
 
 ### 6. **DM Pairing (Security)**
@@ -116,36 +116,36 @@ First-time contacts need approval:
 
 ```bash
 # List pending pairing requests
-moltbot pairing list whatsapp
+openclaw pairing list whatsapp
 
 # Approve a contact
-moltbot pairing approve whatsapp <8-CHAR-CODE>
+openclaw pairing approve whatsapp <8-CHAR-CODE>
 ```
 
 ### 7. **Verification**
 
 ```bash
 # Check gateway status
-moltbot status
+openclaw status
 
 # Health check
-moltbot health
+openclaw health
 
 # Security audit
-moltbot security audit --deep
+openclaw security audit --deep
 ```
 
 ### 8. **Service Management**
 
 ```bash
 # For Podman (via compose)
-podman-compose logs -f moltbot-gateway
-podman-compose restart moltbot-gateway
+podman-compose logs -f openclaw-gateway
+podman-compose restart openclaw-gateway
 
 # For native install with systemd
-systemctl --user status moltbot-gateway
-systemctl --user restart moltbot-gateway
-journalctl --user -u moltbot-gateway -f
+systemctl --user status openclaw-gateway
+systemctl --user restart openclaw-gateway
+journalctl --user -u openclaw-gateway -f
 ```
 
 ## Recommended Setup for Home Lab
@@ -155,7 +155,7 @@ Given your Podman + Tailscale environment:
 1. **Use the Podman setup** (`./podman-setup.sh`)
 2. **Configure Tailscale Serve** in your `.env`:
    ```bash
-   CLAWDBOT_GATEWAY_BIND=tailnet
+   OPENCLAW_GATEWAY_BIND=tailnet
    ```
 3. **Enable token auth** (auto-generated during setup)
 4. **Set up one channel** (WhatsApp is easiest with QR code)
@@ -163,7 +163,7 @@ Given your Podman + Tailscale environment:
 
 ## Key Configuration Tips
 
-**Minimal working config** (`~/.clawdbot/moltbot.json`):
+**Minimal working config** (`~/.openclaw/openclaw.json`):
 
 ```json5
 {
@@ -187,26 +187,26 @@ Given your Podman + Tailscale environment:
 Create `.env` file with these values:
 
 ```bash
-# Directory for moltbot configuration and credentials
-CLAWDBOT_CONFIG_DIR=/home/youruser/.clawdbot
+# Directory for openclaw configuration and credentials
+OPENCLAW_CONFIG_DIR=/home/youruser/.openclaw
 
 # Directory for workspace files (where Claude can read/write)
-CLAWDBOT_WORKSPACE_DIR=/home/youruser/clawd
+OPENCLAW_WORKSPACE_DIR=/home/youruser/.openclaw/workspace
 
 # Gateway port (exposed to network)
-CLAWDBOT_GATEWAY_PORT=18789
+OPENCLAW_GATEWAY_PORT=18789
 
 # Bridge port (internal)
-CLAWDBOT_BRIDGE_PORT=18790
+OPENCLAW_BRIDGE_PORT=18790
 
 # Gateway bind address: 'tailnet' recommended for Tailscale setup
-CLAWDBOT_GATEWAY_BIND=tailnet
+OPENCLAW_GATEWAY_BIND=tailnet
 
 # Gateway authentication token (auto-generated if blank)
-CLAWDBOT_GATEWAY_TOKEN=
+OPENCLAW_GATEWAY_TOKEN=
 
 # Container image name
-CLAWDBOT_IMAGE=moltbot:local
+OPENCLAW_IMAGE=openclaw:local
 
 # Claude AI credentials (required for Claude integration)
 # Get these from https://claude.ai after logging in
@@ -227,14 +227,14 @@ CLAUDE_WEB_COOKIE=
 
 ## Additional Resources
 
-Official documentation at https://docs.molt.bot:
+Official documentation at https://docs.openclaw.ai:
 
-- [Getting Started Guide](https://docs.molt.bot/start/getting-started)
-- [Tailscale Integration](https://docs.molt.bot/gateway/tailscale)
-- [Docker Setup](https://docs.molt.bot/install/docker) (similar to Podman setup)
-- [Gateway Configuration](https://docs.molt.bot/gateway/configuration)
-- [Security & Authentication](https://docs.molt.bot/gateway/security)
-- [Pairing Guide](https://docs.molt.bot/start/pairing)
+- [Getting Started Guide](https://docs.openclaw.ai/start/getting-started)
+- [Tailscale Integration](https://docs.openclaw.ai/gateway/tailscale)
+- [Docker Setup](https://docs.openclaw.ai/install/docker) (similar to Podman setup)
+- [Gateway Configuration](https://docs.openclaw.ai/gateway/configuration)
+- [Security & Authentication](https://docs.openclaw.ai/gateway/security)
+- [Pairing Guide](https://docs.openclaw.ai/start/pairing)
 
 ## Troubleshooting
 
@@ -242,17 +242,17 @@ If you encounter issues:
 
 ```bash
 # Run the doctor command to check for common issues
-moltbot doctor
+openclaw doctor
 
 # Check gateway logs
-podman-compose logs -f moltbot-gateway
+podman-compose logs -f openclaw-gateway
 
 # Verify Tailscale connectivity
 tailscale status
 tailscale ip
 
 # Test gateway health
-moltbot health --token "$CLAWDBOT_GATEWAY_TOKEN"
+openclaw health --token "$OPENCLAW_GATEWAY_TOKEN"
 ```
 
 ## File Locations Reference
@@ -260,7 +260,7 @@ moltbot health --token "$CLAWDBOT_GATEWAY_TOKEN"
 - **Setup script:** `./podman-setup.sh`
 - **Environment config:** `.env` (copy from `.env.podman.example`)
 - **Docker compose:** `docker-compose.yml`
-- **Main config:** `~/.clawdbot/moltbot.json`
-- **Credentials:** `~/.clawdbot/credentials/`
-- **Workspace:** `~/clawd/` (default)
-- **Session logs:** `~/.clawdbot/agents/<agentId>/sessions/`
+- **Main config:** `~/.openclaw/openclaw.json`
+- **Credentials:** `~/.openclaw/credentials/`
+- **Workspace:** `~/.openclaw/workspace/` (default)
+- **Session logs:** `~/.openclaw/agents/<agentId>/sessions/`
