@@ -1,0 +1,8 @@
+services:
+  moltbot-gateway:
+    # Podman rootless: volumes must have proper subuid ownership
+    # Run fix-podman-permissions.sh before setup
+
+  moltbot-cli:
+    # Podman rootless: volumes must have proper subuid ownership
+    # Run fix-podman-permissions.sh before setup
