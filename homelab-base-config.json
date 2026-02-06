@@ -1,0 +1,82 @@
+{
+  "$schema": "https://openclaw.ai/schema/config.json",
+  "version": "2025.1.0",
+
+  "gateway": {
+    "mode": "local",
+    "bind": "lan",
+    "port": 18789,
+    "token": "REPLACE_WITH_SECURE_TOKEN",
+    "allowedOrigins": ["*"]
+  },
+
+  "providers": {
+    "anthropic": {
+      "apiKey": "REPLACE_WITH_ANTHROPIC_API_KEY",
+      "defaultModel": "claude-sonnet-4-5-20250929"
+    }
+  },
+
+  "agents": {
+    "defaults": {
+      "model": {
+        "provider": "anthropic",
+        "name": "claude-sonnet-4-5-20250929"
+      },
+      "sandbox": {
+        "mode": "non-main",
+        "scope": "agent",
+        "engine": "podman"
+      },
+      "state": {
+        "maxSessions": 50,
+        "compactionThreshold": 100000
+      }
+    },
+    "list": [
+      {
+        "id": "default",
+        "displayName": "OpenClaw Agent",
+        "workspace": "~/.openclaw/workspace",
+        "state": "~/.openclaw/state",
+        "sandbox": {
+          "mode": "non-main",
+          "workspaceAccess": "rw"
+        }
+      }
+    ]
+  },
+
+  "bindings": [
+    {
+      "channel": "control",
+      "agent": "default"
+    }
+  ],
+
+  "channels": {
+    "control": {
+      "enabled": true
+    }
+  },
+
+  "workspace": {
+    "base": "~/.openclaw/workspace",
+    "git": {
+      "autoInit": true,
+      "defaultBranch": "main"
+    }
+  },
+
+  "sessions": {
+    "storage": "~/.openclaw/sessions",
+    "persistent": true
+  },
+
+  "logging": {
+    "level": "info",
+    "file": "~/.openclaw/logs/gateway.log",
+    "maxSize": "10M",
+    "maxFiles": 5
+  }
+}
