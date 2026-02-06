@@ -1,8 +1,19 @@
-services:
-  moltbot-gateway:
-    # Podman rootless: volumes must have proper subuid ownership
-    # Run fix-podman-permissions.sh before setup
+# Podman-specific overrides for rootless mode
+# This file extends docker-compose.yml with Podman-specific user namespace mappings
+#
+# Usage:
+#   podman compose -f docker-compose.yml -f docker-compose.podman.yml up -d
+#
+# The userns_mode: keep-id setting maps the host user (e.g., UID 2000) to the
+# container's node user (UID 1000), allowing proper file access to bind-mounted volumes.
 
-  moltbot-cli:
-    # Podman rootless: volumes must have proper subuid ownership
-    # Run fix-podman-permissions.sh before setup
+services:
+  openclaw-gateway:
+    # Map host user to container UID 1000 (node user)
+    # This allows the container to read/write to host-owned directories
+    userns_mode: "keep-id:uid=1000,gid=1000"
+
+  openclaw-cli:
+    # Map host user to container UID 1000 (node user)
+    # This allows the container to read/write to host-owned directories
+    userns_mode: "keep-id:uid=1000,gid=1000"

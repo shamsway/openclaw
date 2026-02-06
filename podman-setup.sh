@@ -13,7 +13,7 @@ while [[ $# -gt 0 ]]; do
       cat <<EOF
 Usage: $0 [OPTIONS]
 
-Podman setup script for Moltbot
+Podman setup script for OpenClaw
 
 Options:
   --skip-build, --no-build  Skip building the container image
@@ -24,8 +24,8 @@ Examples:
   $0 --skip-build       # Skip build, use existing image
 
 Prerequisites:
-  - Run fix-podman-permissions.sh first to set up directory permissions
-  - Ensure .env file is configured with your settings
+  - Podman rootless mode handles permissions via userns_mode in docker-compose.podman.yml
+  - Ensure .env file is configured with your settings (or let script generate defaults)
 EOF
       exit 0
       ;;
@@ -39,6 +39,7 @@ done
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
+PODMAN_COMPOSE_FILE="$ROOT_DIR/docker-compose.podman.yml"
 EXTRA_COMPOSE_FILE="$ROOT_DIR/docker-compose.extra.yml"
 IMAGE_NAME="${OPENCLAW_IMAGE:-openclaw:local}"
 EXTRA_MOUNTS="${OPENCLAW_EXTRA_MOUNTS:-}"
@@ -81,7 +82,7 @@ PY
 fi
 export OPENCLAW_GATEWAY_TOKEN
 
-COMPOSE_FILES=("$COMPOSE_FILE")
+COMPOSE_FILES=("$COMPOSE_FILE" "$PODMAN_COMPOSE_FILE")
 COMPOSE_ARGS=()
 
 write_extra_compose() {
@@ -236,7 +237,7 @@ echo "Telegram (bot token):"
 echo "  ${COMPOSE_HINT} run --rm openclaw-cli providers add --provider telegram --token <token>"
 echo "Discord (bot token):"
 echo "  ${COMPOSE_HINT} run --rm openclaw-cli providers add --provider discord --token <token>"
-echo "Docs: https://docs.molt.bot/providers"
+echo "Docs: https://docs.openclaw.ai/channels"
 
 echo ""
 echo "==> Starting gateway"
