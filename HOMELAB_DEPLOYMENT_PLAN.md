@@ -12,16 +12,18 @@ This document outlines deployment strategies for running OpenClaw Gateway in a L
 ## Current State Assessment
 
 ### Existing Setup
+
 - ✅ `podman-setup.sh` script created (mirrors Docker setup)
 - ✅ Podman compose configuration in place
 - ✅ Basic container build and volume mounting configured
 - ⚠️ Podman is **not officially supported** (Docker is official)
 
 ### What's Working
+
 - Image building with Podman
 - Persistent volumes for config (`~/.openclaw`) and workspace (`~/.openclaw/workspace`)
 - Onboarding flow
-- Gateway startup via podman-compose
+- Gateway startup via podman compose
 
 ---
 
@@ -30,12 +32,14 @@ This document outlines deployment strategies for running OpenClaw Gateway in a L
 ### Option A: Native systemd Installation (Recommended)
 
 **Overview:**
+
 - Install OpenClaw directly on Linux with Node.js
 - Use systemd user service for auto-start
 - Docker/Podman still used for agent sandboxing only
 - Lightest weight, simplest to troubleshoot
 
 **Pros:**
+
 - ✅ Official support and documentation
 - ✅ Simpler troubleshooting (direct access to logs, processes, config)
 - ✅ Better performance (no container overhead)
@@ -43,12 +47,14 @@ This document outlines deployment strategies for running OpenClaw Gateway in a L
 - ✅ Agent sandboxing still available via Docker/Podman
 
 **Cons:**
+
 - ❌ Less isolation than containers
 - ❌ Direct system installation
 
 **Best for:** Single dedicated homelab server, production use
 
 **Installation:**
+
 ```bash
 # Install Node.js 22+
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
@@ -70,6 +76,7 @@ openclaw status
 ```
 
 **Service Management:**
+
 ```bash
 # Status
 systemctl --user status openclaw-gateway
@@ -97,17 +104,20 @@ sudo loginctl enable-linger $USER
 ### Option B: Podman Container (Current Approach)
 
 **Overview:**
+
 - Gateway runs inside Podman container
 - Persistence via volume mounts
 - Isolated environment, easy to destroy/rebuild
 
 **Pros:**
+
 - ✅ Complete isolation
 - ✅ Easy to destroy and rebuild
 - ✅ Familiar Docker-compatible workflow
 - ✅ Existing `podman-setup.sh` script ready
 
 **Cons:**
+
 - ❌ Not officially supported (Docker only)
 - ❌ Additional complexity for troubleshooting
 - ❌ Container overhead
@@ -127,6 +137,7 @@ sudo loginctl enable-linger $USER
    - Run `fix-podman-permissions.sh` before setup
 
 **Enhanced Dockerfile Example:**
+
 ```dockerfile
 FROM node:22-bookworm
 
@@ -181,6 +192,7 @@ CMD ["node","dist/index.js"]
 ```
 
 **Usage:**
+
 ```bash
 # Build image
 podman build \
@@ -193,14 +205,14 @@ podman build \
 ./podman-setup.sh
 
 # Service management
-podman-compose up -d openclaw-gateway
-podman-compose logs -f openclaw-gateway
-podman-compose restart openclaw-gateway
-podman-compose down
+podman compose up -d openclaw-gateway
+podman compose logs -f openclaw-gateway
+podman compose restart openclaw-gateway
+podman compose down
 
 # Verify binaries persisted
-podman-compose exec openclaw-gateway which gog
-podman-compose exec openclaw-gateway which wacli
+podman compose exec openclaw-gateway which gog
+podman compose exec openclaw-gateway which wacli
 ```
 
 ---
@@ -208,17 +220,20 @@ podman-compose exec openclaw-gateway which wacli
 ### Option C: Ansible Hardened Deployment (Production-Grade)
 
 **Overview:**
+
 - Automated deployment with 4-layer security architecture
 - Native installation (not containerized gateway)
 - Firewall + VPN + Docker isolation + systemd hardening
 
 **Security Layers:**
+
 1. **Firewall (UFW)**: Only SSH (22) + Tailscale (41641/udp) exposed publicly
 2. **VPN (Tailscale)**: Gateway accessible only via VPN mesh
 3. **Docker Isolation**: DOCKER-USER iptables chain prevents external port exposure
 4. **Systemd Hardening**: NoNewPrivileges, PrivateTmp, unprivileged user
 
 **What Gets Installed:**
+
 - Tailscale (mesh VPN)
 - UFW firewall
 - Docker CE + Compose V2 (for agent sandboxes)
@@ -227,6 +242,7 @@ podman-compose exec openclaw-gateway which wacli
 - Systemd service with security hardening
 
 **Installation:**
+
 ```bash
 # One-command install
 curl -fsSL https://raw.githubusercontent.com/openclaw/openclaw-ansible/main/install.sh | bash
@@ -242,6 +258,7 @@ ansible-galaxy collection install -r requirements.yml
 **Best for:** Production homelab with security focus, multi-user environments
 
 **Verification:**
+
 ```bash
 # Check service status
 sudo systemctl status openclaw
@@ -259,7 +276,7 @@ nmap -p- YOUR_SERVER_IP
 
 ### Recommended Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │  Linux Homelab Server(s)                                │
 │  ┌───────────────────────────────────────────────────┐  │
@@ -277,9 +294,9 @@ nmap -p- YOUR_SERVER_IP
 ┌─────────────────────────────────────────────────────────┐
 │  MacBook                                                │
 │  ┌───────────────────────────────────────────────────┐  │
-│  │  Option 1: OpenClaw Mac App (local gateway)      │  │
-│  │  Option 2: Connect to remote homelab gateway     │  │
-│  │  Option 3: Both (separate profiles)              │  │
+│  │  Option 1: OpenClaw Mac App (local gateway)       │  │
+│  │  Option 2: Connect to remote homelab gateway      │  │
+│  │  Option 3: Both (separate profiles)               │  │
 │  └───────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -287,18 +304,21 @@ nmap -p- YOUR_SERVER_IP
 ### MacBook Options
 
 #### Option 1: Mac App Only (Local Gateway)
+
 - Install OpenClaw.app
 - Runs local gateway in menubar
 - Independent from homelab
 - Best for: Local development, mobile work, offline capability
 
 #### Option 2: Remote Gateway Only
+
 - No local gateway on MacBook
 - SSH tunnel or Tailscale to homelab
 - Access Control UI at `http://127.0.0.1:18789`
 - Best for: Always-on homelab as primary gateway
 
 **Remote Access Methods:**
+
 ```bash
 # Method 1: SSH Tunnel (simple, secure)
 ssh -N -L 18789:127.0.0.1:18789 user@homelab-server
@@ -316,6 +336,7 @@ tailscale serve https / http://127.0.0.1:18789
 ```
 
 #### Option 3: Hybrid (Both Environments)
+
 - Mac app for local/mobile work
 - Remote gateway for always-on homelab agents
 - Use `--profile` flag to separate configs
@@ -323,6 +344,7 @@ tailscale serve https / http://127.0.0.1:18789
 - Best for: Maximum flexibility
 
 **Profile-based isolation:**
+
 ```bash
 # On MacBook (local)
 openclaw --profile mac onboard
@@ -346,12 +368,14 @@ openclaw --profile homelab gateway
 OpenClaw supports **multiple isolated agents in one Gateway process**.
 
 ### Use Cases
+
 - Personal agent (full access) + Family agent (restricted access)
 - Different messaging accounts routed to different agents
 - Per-agent sandbox policies and tool restrictions
 - One agent per person for complete isolation
 
 ### Configuration
+
 Each agent has:
 - Separate workspace directory
 - Separate state directory
@@ -360,6 +384,7 @@ Each agent has:
 - Per-agent sandbox settings
 
 ### Example Routing
+
 ```json5
 {
   "agents": {
@@ -411,6 +436,7 @@ Each agent has:
 ## Security Considerations
 
 ### Minimal Security (SSH Tunnel)
+
 ```bash
 # Gateway binds to loopback only
 openclaw gateway --bind loopback --port 18789
@@ -434,6 +460,7 @@ ssh -N -L 18789:127.0.0.1:18789 user@homelab-server
 ---
 
 ### Enhanced Security (Tailscale VPN)
+
 ```bash
 # Install Tailscale on homelab + MacBook
 curl -fsSL https://tailscale.com/install.sh | sh
@@ -450,6 +477,7 @@ tailscale serve https / http://127.0.0.1:18789
 ```
 
 **Pros:**
+
 - ✅ Best user experience
 - ✅ Always-on connectivity
 - ✅ No manual tunnel management
@@ -457,30 +485,35 @@ tailscale serve https / http://127.0.0.1:18789
 - ✅ Access from any device on tailnet
 
 **Cons:**
+
 - ❌ Requires Tailscale account
 - ❌ Additional dependency
 
 ---
 
 ### Maximum Security (Ansible Hardened)
+
 ```bash
 # Use openclaw-ansible playbook
 curl -fsSL https://raw.githubusercontent.com/openclaw/openclaw-ansible/main/install.sh | bash
 ```
 
 **Security Architecture:**
+
 1. Firewall: Only SSH + Tailscale ports exposed
 2. VPN: Gateway accessible only via Tailscale
 3. Docker isolation: DOCKER-USER iptables chain
 4. Systemd hardening: NoNewPrivileges, PrivateTmp, unprivileged user
 
 **Pros:**
+
 - ✅ Production-grade security
 - ✅ Defense in depth (4 layers)
 - ✅ Automated setup
 - ✅ Battle-tested configuration
 
 **Cons:**
+
 - ❌ More complex setup
 - ❌ Requires Tailscale
 - ❌ May be overkill for home use
@@ -492,6 +525,7 @@ curl -fsSL https://raw.githubusercontent.com/openclaw/openclaw-ansible/main/inst
 ### Phase 1: Initial Setup (Choose One)
 
 #### Path A: Native systemd (Recommended)
+
 ```bash
 # On homelab server
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
@@ -505,6 +539,7 @@ openclaw health
 ```
 
 #### Path B: Podman Container
+
 ```bash
 # On homelab server
 # 1. Update Dockerfile to include required binaries
@@ -512,9 +547,9 @@ openclaw health
 ./podman-setup.sh
 
 # Verify
-podman-compose ps
-podman-compose logs openclaw-gateway
-podman-compose exec openclaw-gateway which gog
+podman compose ps
+podman compose logs openclaw-gateway
+podman compose exec openclaw-gateway which gog
 ```
 
 ---
@@ -522,6 +557,7 @@ podman-compose exec openclaw-gateway which gog
 ### Phase 2: Remote Access Setup
 
 #### Option 1: SSH Tunnel (Simplest)
+
 ```bash
 # From MacBook
 ssh -N -L 18789:127.0.0.1:18789 user@homelab-server
@@ -529,6 +565,7 @@ ssh -N -L 18789:127.0.0.1:18789 user@homelab-server
 ```
 
 #### Option 2: Tailscale (Best UX)
+
 ```bash
 # Install on both homelab and MacBook
 curl -fsSL https://tailscale.com/install.sh | sh
@@ -546,6 +583,7 @@ tailscale serve https / http://127.0.0.1:18789
 ### Phase 3: MacBook Integration
 
 #### Local Mac App (Optional)
+
 ```bash
 # Download OpenClaw.app
 # Runs independent local gateway
@@ -553,6 +591,7 @@ tailscale serve https / http://127.0.0.1:18789
 ```
 
 #### Connect to Remote Gateway
+
 ```bash
 # Use SSH tunnel or Tailscale
 # Access Control UI in browser
@@ -562,6 +601,7 @@ tailscale serve https / http://127.0.0.1:18789
 ---
 
 ### Phase 4: Multi-Agent Setup (Optional)
+
 ```bash
 # Edit ~/.openclaw/openclaw.json
 # Add agents.list configuration
@@ -575,6 +615,7 @@ openclaw gateway restart
 ## Testing & Validation
 
 ### Quick Test (Dev Profile)
+
 ```bash
 # Test without affecting main setup
 openclaw --dev setup
@@ -587,6 +628,7 @@ rm -rf ~/.openclaw-dev
 ```
 
 ### Health Checks
+
 ```bash
 # CLI health check
 openclaw health
@@ -599,12 +641,12 @@ openclaw gateway health --json
 
 # Check service status
 systemctl --user status openclaw-gateway  # systemd
-podman-compose ps  # podman
+podman compose ps  # podman
 
 # View logs
 openclaw logs --follow  # CLI method
 journalctl --user -u openclaw-gateway -f  # systemd
-podman-compose logs -f openclaw-gateway  # podman
+podman compose logs -f openclaw-gateway  # podman
 ```
 
 ---
@@ -627,6 +669,7 @@ podman-compose logs -f openclaw-gateway  # podman
 ### Container-Specific Persistence
 
 **Critical:** If using Podman/Docker:
+
 - External binaries MUST be in the Dockerfile
 - Runtime installations are LOST on restart
 - Volume mounts preserve config/workspace only
@@ -639,6 +682,7 @@ podman-compose logs -f openclaw-gateway  # podman
 ### Gateway Won't Start
 
 #### Native systemd:
+
 ```bash
 # Check service status
 systemctl --user status openclaw-gateway
@@ -654,18 +698,19 @@ openclaw gateway --port 18789 --verbose
 ```
 
 #### Podman:
+
 ```bash
 # Check container status
-podman-compose ps
+podman compose ps
 
 # View logs
-podman-compose logs openclaw-gateway
+podman compose logs openclaw-gateway
 
 # Check for port conflicts
 ss -ltnp | grep 18789
 
 # Test manual start
-podman-compose up openclaw-gateway
+podman compose up openclaw-gateway
 ```
 
 ---
@@ -719,15 +764,15 @@ tailscale status
 
 ```bash
 # Check if binary exists in container
-podman-compose exec openclaw-gateway which gog
+podman compose exec openclaw-gateway which gog
 
 # If not found, binary was not baked into image
 # Add to Dockerfile and rebuild:
 podman build -t openclaw:local -f Dockerfile .
-podman-compose up -d --force-recreate openclaw-gateway
+podman compose up -d --force-recreate openclaw-gateway
 
 # Verify again
-podman-compose exec openclaw-gateway which gog
+podman compose exec openclaw-gateway which gog
 ```
 
 ---
@@ -735,18 +780,21 @@ podman-compose exec openclaw-gateway which gog
 ## Resource Requirements
 
 ### Minimum
+
 - 1GB RAM
 - 1 CPU core
 - 2GB disk space
 - Stable internet connection
 
 ### Recommended
+
 - 2GB+ RAM
 - 2+ CPU cores
 - 10GB disk space (for workspaces, logs, sandboxes)
 - Stable internet connection
 
 ### Raspberry Pi
+
 - Pi 4/5 with 2GB+ RAM supported
 - Add 2GB swap for stability
 - See: https://docs.openclaw.ai/platforms/raspberry-pi
@@ -756,6 +804,7 @@ podman-compose exec openclaw-gateway which gog
 ## References
 
 ### Official Documentation
+
 - Linux Platform Guide: https://docs.openclaw.ai/platforms/linux
 - Docker Installation: https://docs.openclaw.ai/install/docker
 - Gateway Runbook: https://docs.openclaw.ai/gateway
@@ -765,6 +814,7 @@ podman-compose exec openclaw-gateway which gog
 - Remote Access: https://docs.openclaw.ai/gateway/remote
 
 ### Production Deployment Guides
+
 - Hetzner (Docker VPS): https://docs.openclaw.ai/platforms/hetzner
 - DigitalOcean: https://docs.openclaw.ai/platforms/digitalocean
 - Raspberry Pi: https://docs.openclaw.ai/platforms/raspberry-pi
@@ -772,10 +822,12 @@ podman-compose exec openclaw-gateway which gog
 - Fly.io: https://docs.openclaw.ai/platforms/fly
 
 ### Security & Hardening
+
 - Ansible Deployment: https://docs.openclaw.ai/install/ansible
 - openclaw-ansible repo: https://github.com/openclaw/openclaw-ansible
 
 ### External Resources
+
 - Docker - OpenClaw: https://docs.openclaw.ai/install/docker
 - Deploy OpenClaw on AWS or Hetzner: https://www.pulumi.com/blog/deploy-openclaw-aws-hetzner/
 - OpenClaw Complete Guide 2026: https://www.nxcode.io/resources/news/openclaw-complete-guide-2026
