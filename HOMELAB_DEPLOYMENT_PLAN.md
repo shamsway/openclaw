@@ -1,60 +1,103 @@
 # OpenClaw Homelab Deployment Plan
 
 **Date:** 2026-01-31
-**Target Environment:** Linux homelab with Podman + MacBook integration
+**Target Environment:** Octant homelab framework with Podman + MacBook integration
+**Homelab Framework:** [Octant](https://github.com/shamsway/octant) - Ansible/Nomad/Consul/Tailscale/1Password
 
 ## Executive Summary
 
-This document outlines deployment strategies for running OpenClaw Gateway in a Linux homelab environment, with considerations for Podman containerization, security hardening, and MacBook integration.
+This document outlines deployment strategies for running OpenClaw Gateway in the Octant homelab environment, with a focus on:
+- **Podman-first approach** (aligns with Octant's rootless Podman preference)
+- **Leveraging existing infrastructure** (Tailscale VPN, 1Password secrets, Consul/Nomad)
+- **Testing path** leading to full Octant integration
+- **Multi-environment setup** (homelab node + MacBook agents)
+
+The deployment strategy progresses through three phases:
+1. **Phase 1:** Standalone testing with Podman
+2. **Phase 2:** Integration with existing Octant services (Tailscale, 1Password)
+3. **Phase 3:** Full Nomad orchestration with Consul service discovery
 
 ---
 
 ## Current State Assessment
 
 ### Existing Setup
-
 - ✅ `podman-setup.sh` script created (mirrors Docker setup)
 - ✅ Podman compose configuration in place
 - ✅ Basic container build and volume mounting configured
-- ⚠️ Podman is **not officially supported** (Docker is official)
+- ✅ Octant homelab framework with Nomad/Consul/Tailscale
+- ✅ Existing Tailscale VPN infrastructure
+- ✅ Existing 1Password secrets management
+- ⚠️ Podman is **not officially supported** by OpenClaw (Docker is official)
 
 ### What's Working
-
 - Image building with Podman
 - Persistent volumes for config (`~/.openclaw`) and workspace (`~/.openclaw/workspace`)
 - Onboarding flow
-- Gateway startup via podman compose
+- Gateway startup via podman-compose
+
+### Octant Framework Context
+Your existing homelab provides:
+- **Container orchestration:** Nomad with Podman driver (rootless preferred)
+- **Service discovery:** Consul for dynamic service registration
+- **Network connectivity:** Tailscale mesh VPN
+- **Secrets management:** 1Password integration
+- **Configuration management:** Ansible roles and playbooks
+- **Infrastructure as code:** Terraform modules for services
+
+---
+
+## Deployment Philosophy
+
+Given your Octant framework, we'll take a **progressive integration approach**:
+
+1. **Start simple:** Standalone Podman containers for testing
+2. **Integrate incrementally:** Leverage Tailscale and 1Password first
+3. **Full orchestration:** Deploy as Nomad job when ready
+
+This allows you to:
+- Test OpenClaw without disrupting existing infrastructure
+- Validate the Podman approach before committing to Nomad
+- Build confidence with standalone deployment first
+- Seamlessly upgrade to full Octant integration later
 
 ---
 
 ## Architecture Options
 
-### Option A: Native systemd Installation (Recommended)
+### Option A: Podman Container (Recommended for Octant Framework)
 
 **Overview:**
+- Gateway runs inside rootless Podman container
+- Aligns with Octant's rootless Podman preference
+- Persistence via volume mounts
+- Prepares for eventual Nomad orchestration
+- Isolated environment, easy to destroy/rebuild
 
-- Install OpenClaw directly on Linux with Node.js
-- Use systemd user service for auto-start
-- Docker/Podman still used for agent sandboxing only
-- Lightest weight, simplest to troubleshoot
+**Why Podman for Octant:**
+- ✅ **Framework alignment:** Octant uses rootless Podman for all workloads
+- ✅ **Nomad compatibility:** Podman driver is first-class in Nomad
+- ✅ **Isolation:** Container boundary keeps OpenClaw separated from other services
+- ✅ **Terraform-ready:** Easy to wrap in Terraform module like other Octant services
+- ✅ **Testing flexibility:** Can test standalone before Nomad deployment
 
 **Pros:**
-
-- ✅ Official support and documentation
-- ✅ Simpler troubleshooting (direct access to logs, processes, config)
-- ✅ Better performance (no container overhead)
-- ✅ Easier updates (`npm i -g openclaw@latest`)
-- ✅ Agent sandboxing still available via Docker/Podman
+- ✅ Matches Octant deployment patterns
+- ✅ Complete isolation from other services
+- ✅ Easy to destroy and rebuild during testing
+- ✅ Familiar podman-compose workflow
+- ✅ Direct path to Nomad job deployment
+- ✅ Rootless execution for security
 
 **Cons:**
+- ⚠️ Not officially supported by OpenClaw (Docker is official)
+- ⚠️ Additional complexity for troubleshooting
+- ⚠️ Must bake external binaries into image
+- ⚠️ Container overhead (minimal with Podman)
 
-- ❌ Less isolation than containers
-- ❌ Direct system installation
-
-**Best for:** Single dedicated homelab server, production use
+**Best for:** Testing in Octant environment, eventual Nomad deployment
 
 **Installation:**
-
 ```bash
 # Install Node.js 22+
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
@@ -76,7 +119,6 @@ openclaw status
 ```
 
 **Service Management:**
-
 ```bash
 # Status
 systemctl --user status openclaw-gateway
@@ -101,29 +143,28 @@ sudo loginctl enable-linger $USER
 
 ---
 
-### Option B: Podman Container (Current Approach)
+### Option B: Native systemd Installation (Alternative)
 
 **Overview:**
-
-- Gateway runs inside Podman container
-- Persistence via volume mounts
-- Isolated environment, easy to destroy/rebuild
+- Install OpenClaw directly on Linux with Node.js
+- Use systemd user service for auto-start
+- Docker/Podman still used for agent sandboxing only
+- Lightest weight, simplest to troubleshoot
 
 **Pros:**
-
-- ✅ Complete isolation
-- ✅ Easy to destroy and rebuild
-- ✅ Familiar Docker-compatible workflow
-- ✅ Existing `podman-setup.sh` script ready
+- ✅ Official support and documentation
+- ✅ Simpler troubleshooting (direct access to logs, processes, config)
+- ✅ Better performance (no container overhead)
+- ✅ Easier updates (`npm i -g openclaw@latest`)
+- ✅ Agent sandboxing still available via Docker/Podman
 
 **Cons:**
+- ❌ Less isolation than containers
+- ❌ Doesn't align with Octant patterns
+- ❌ Harder to migrate to Nomad later
+- ❌ Direct system installation
 
-- ❌ Not officially supported (Docker only)
-- ❌ Additional complexity for troubleshooting
-- ❌ Container overhead
-- ❌ Must bake external binaries into image
-
-**Best for:** Testing, experimentation, or strong preference for containers
+**Best for:** Quick testing, official support priority, performance-critical deployments
 
 **Critical Requirements:**
 
@@ -137,7 +178,6 @@ sudo loginctl enable-linger $USER
    - Run `fix-podman-permissions.sh` before setup
 
 **Enhanced Dockerfile Example:**
-
 ```dockerfile
 FROM node:22-bookworm
 
@@ -192,7 +232,6 @@ CMD ["node","dist/index.js"]
 ```
 
 **Usage:**
-
 ```bash
 # Build image
 podman build \
@@ -205,70 +244,52 @@ podman build \
 ./podman-setup.sh
 
 # Service management
-podman compose up -d openclaw-gateway
-podman compose logs -f openclaw-gateway
-podman compose restart openclaw-gateway
-podman compose down
+podman-compose up -d openclaw-gateway
+podman-compose logs -f openclaw-gateway
+podman-compose restart openclaw-gateway
+podman-compose down
 
 # Verify binaries persisted
-podman compose exec openclaw-gateway which gog
-podman compose exec openclaw-gateway which wacli
+podman-compose exec openclaw-gateway which gog
+podman-compose exec openclaw-gateway which wacli
 ```
 
 ---
 
-### Option C: Ansible Hardened Deployment (Production-Grade)
+### Option C: Nomad Orchestrated Deployment (Future State)
 
 **Overview:**
+- Deploy OpenClaw as a Nomad job
+- Integrate with Consul service discovery
+- Leverage Octant's existing infrastructure
+- Full infrastructure-as-code deployment
 
-- Automated deployment with 4-layer security architecture
-- Native installation (not containerized gateway)
-- Firewall + VPN + Docker isolation + systemd hardening
+**Why Nomad:**
+- ✅ **Matches Octant patterns:** All services deploy via Nomad
+- ✅ **Service discovery:** Automatic Consul registration
+- ✅ **Health checking:** Nomad monitors gateway health
+- ✅ **Resource management:** CPU/memory limits and allocation
+- ✅ **Multi-node scheduling:** Can run on any cluster node
+- ✅ **Terraform integration:** Wrap in Terraform module
 
-**Security Layers:**
+**Prerequisites:**
+1. Successful Podman standalone deployment (Option A)
+2. Octant cluster running (Consul + Nomad)
+3. OpenClaw image built and available
+4. Configuration tested and validated
 
-1. **Firewall (UFW)**: Only SSH (22) + Tailscale (41641/udp) exposed publicly
-2. **VPN (Tailscale)**: Gateway accessible only via VPN mesh
-3. **Docker Isolation**: DOCKER-USER iptables chain prevents external port exposure
-4. **Systemd Hardening**: NoNewPrivileges, PrivateTmp, unprivileged user
+**Deployment Pattern:**
+- Create Terraform module (similar to other Octant services)
+- Define Nomad job with Podman driver
+- Configure Consul service registration
+- Set up Traefik routing (optional)
+- Store secrets in 1Password, reference in job
 
-**What Gets Installed:**
+**Best for:** Production homelab deployment, full Octant integration
 
-- Tailscale (mesh VPN)
-- UFW firewall
-- Docker CE + Compose V2 (for agent sandboxes)
-- Node.js 22 + pnpm
-- OpenClaw (host-based, not containerized)
-- Systemd service with security hardening
+**Timeline:** After testing with standalone Podman deployment
 
-**Installation:**
-
-```bash
-# One-command install
-curl -fsSL https://raw.githubusercontent.com/openclaw/openclaw-ansible/main/install.sh | bash
-
-# Manual install
-sudo apt update && sudo apt install -y ansible git
-git clone https://github.com/openclaw/openclaw-ansible.git
-cd openclaw-ansible
-ansible-galaxy collection install -r requirements.yml
-./run-playbook.sh
-```
-
-**Best for:** Production homelab with security focus, multi-user environments
-
-**Verification:**
-
-```bash
-# Check service status
-sudo systemctl status openclaw
-
-# View logs
-sudo journalctl -u openclaw -f
-
-# Test external attack surface (should only show port 22)
-nmap -p- YOUR_SERVER_IP
-```
+**Note:** This option is detailed later in the "Phase 3: Nomad Integration" section.
 
 ---
 
@@ -276,7 +297,7 @@ nmap -p- YOUR_SERVER_IP
 
 ### Recommended Architecture
 
-```text
+```
 ┌─────────────────────────────────────────────────────────┐
 │  Linux Homelab Server(s)                                │
 │  ┌───────────────────────────────────────────────────┐  │
@@ -294,9 +315,9 @@ nmap -p- YOUR_SERVER_IP
 ┌─────────────────────────────────────────────────────────┐
 │  MacBook                                                │
 │  ┌───────────────────────────────────────────────────┐  │
-│  │  Option 1: OpenClaw Mac App (local gateway)       │  │
-│  │  Option 2: Connect to remote homelab gateway      │  │
-│  │  Option 3: Both (separate profiles)               │  │
+│  │  Option 1: OpenClaw Mac App (local gateway)      │  │
+│  │  Option 2: Connect to remote homelab gateway     │  │
+│  │  Option 3: Both (separate profiles)              │  │
 │  └───────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -304,21 +325,18 @@ nmap -p- YOUR_SERVER_IP
 ### MacBook Options
 
 #### Option 1: Mac App Only (Local Gateway)
-
 - Install OpenClaw.app
 - Runs local gateway in menubar
 - Independent from homelab
 - Best for: Local development, mobile work, offline capability
 
 #### Option 2: Remote Gateway Only
-
 - No local gateway on MacBook
 - SSH tunnel or Tailscale to homelab
 - Access Control UI at `http://127.0.0.1:18789`
 - Best for: Always-on homelab as primary gateway
 
 **Remote Access Methods:**
-
 ```bash
 # Method 1: SSH Tunnel (simple, secure)
 ssh -N -L 18789:127.0.0.1:18789 user@homelab-server
@@ -336,7 +354,6 @@ tailscale serve https / http://127.0.0.1:18789
 ```
 
 #### Option 3: Hybrid (Both Environments)
-
 - Mac app for local/mobile work
 - Remote gateway for always-on homelab agents
 - Use `--profile` flag to separate configs
@@ -344,7 +361,6 @@ tailscale serve https / http://127.0.0.1:18789
 - Best for: Maximum flexibility
 
 **Profile-based isolation:**
-
 ```bash
 # On MacBook (local)
 openclaw --profile mac onboard
@@ -368,14 +384,12 @@ openclaw --profile homelab gateway
 OpenClaw supports **multiple isolated agents in one Gateway process**.
 
 ### Use Cases
-
 - Personal agent (full access) + Family agent (restricted access)
 - Different messaging accounts routed to different agents
 - Per-agent sandbox policies and tool restrictions
 - One agent per person for complete isolation
 
 ### Configuration
-
 Each agent has:
 - Separate workspace directory
 - Separate state directory
@@ -384,7 +398,6 @@ Each agent has:
 - Per-agent sandbox settings
 
 ### Example Routing
-
 ```json5
 {
   "agents": {
@@ -436,7 +449,6 @@ Each agent has:
 ## Security Considerations
 
 ### Minimal Security (SSH Tunnel)
-
 ```bash
 # Gateway binds to loopback only
 openclaw gateway --bind loopback --port 18789
@@ -459,139 +471,507 @@ ssh -N -L 18789:127.0.0.1:18789 user@homelab-server
 
 ---
 
-### Enhanced Security (Tailscale VPN)
+### Enhanced Security (Tailscale VPN) - Recommended for Octant
+
+**You already have Tailscale!** Your Octant framework uses it for connectivity.
 
 ```bash
-# Install Tailscale on homelab + MacBook
-curl -fsSL https://tailscale.com/install.sh | sh
-tailscale up
-
 # Gateway can bind to loopback or Tailscale IP
 openclaw gateway --bind loopback --port 18789
 
-# Optional: Tailscale Serve for HTTPS
+# Optional: Tailscale Serve for HTTPS (if not using Traefik)
 tailscale serve https / http://127.0.0.1:18789
 
 # Access from MacBook via Tailscale hostname
-# https://homelab-server.tailnet-name.ts.net
+# https://homelab-node.your-tailnet.ts.net
 ```
 
 **Pros:**
-
+- ✅ **Already deployed** in your Octant framework
 - ✅ Best user experience
 - ✅ Always-on connectivity
 - ✅ No manual tunnel management
 - ✅ Auto HTTPS with Tailscale Serve
 - ✅ Access from any device on tailnet
+- ✅ Integrates with existing Octant services
 
 **Cons:**
+- None - you already have this!
 
-- ❌ Requires Tailscale account
-- ❌ Additional dependency
+**Octant Integration Notes:**
+- Tailscale is already configured via Ansible
+- Your MacBook is likely already on the tailnet
+- All homelab nodes are accessible via Tailscale
+- Consider using Traefik (already in Octant) for routing instead of Tailscale Serve
 
 ---
 
-### Maximum Security (Ansible Hardened)
+## Recommended Implementation Path for Octant
 
-```bash
-# Use openclaw-ansible playbook
-curl -fsSL https://raw.githubusercontent.com/openclaw/openclaw-ansible/main/install.sh | bash
-```
-
-**Security Architecture:**
-
-1. Firewall: Only SSH + Tailscale ports exposed
-2. VPN: Gateway accessible only via Tailscale
-3. Docker isolation: DOCKER-USER iptables chain
-4. Systemd hardening: NoNewPrivileges, PrivateTmp, unprivileged user
-
-**Pros:**
-
-- ✅ Production-grade security
-- ✅ Defense in depth (4 layers)
-- ✅ Automated setup
-- ✅ Battle-tested configuration
-
-**Cons:**
-
-- ❌ More complex setup
-- ❌ Requires Tailscale
-- ❌ May be overkill for home use
+This section provides a phased approach to deploying OpenClaw in your Octant homelab, progressing from simple testing to full integration.
 
 ---
 
-## Recommended Implementation Path
+## Phase 1: Standalone Podman Testing
 
-### Phase 1: Initial Setup (Choose One)
+**Goal:** Get OpenClaw running in a Podman container with basic functionality
 
-#### Path A: Native systemd (Recommended)
+**Duration:** 1-2 hours
+
+**Prerequisites:**
+- Homelab node with Podman installed (you already have this via Octant)
+- Access to the node via SSH or directly
+- Basic familiarity with podman-compose
+
+### Step 1.1: Prepare the Environment
 
 ```bash
-# On homelab server
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
-sudo npm i -g openclaw@latest
-openclaw onboard --install-daemon
+# SSH to your homelab node
+ssh user@homelab-node
 
-# Verify
-systemctl --user status openclaw-gateway
-openclaw health
+# Clone your OpenClaw fork
+git clone https://github.com/shamsway/openclaw.git
+cd openclaw
+
+# Checkout the podman branch
+git checkout feature/podman-homelab-deployment
 ```
 
-#### Path B: Podman Container
+### Step 1.2: Configure Environment Variables
 
 ```bash
-# On homelab server
-# 1. Update Dockerfile to include required binaries
-# 2. Run setup
+# Review the example env file
+cat .env.podman.example
+
+# Create your .env file
+cp .env.podman.example .env
+
+# Edit with your values
+vi .env
+```
+
+**Key variables to set:**
+```bash
+OPENCLAW_IMAGE=openclaw:local
+OPENCLAW_GATEWAY_TOKEN=<generate-with-openssl-rand-hex-32>
+OPENCLAW_GATEWAY_BIND=loopback  # Start with loopback for testing
+OPENCLAW_CONFIG_DIR=/home/youruser/.openclaw
+OPENCLAW_WORKSPACE_DIR=/home/youruser/.openclaw/workspace
+```
+
+### Step 1.3: Build and Deploy
+
+```bash
+# Run the podman setup script
 ./podman-setup.sh
 
-# Verify
-podman compose ps
-podman compose logs openclaw-gateway
-podman compose exec openclaw-gateway which gog
+# This will:
+# - Build the OpenClaw image with Podman
+# - Set up persistent directories
+# - Run onboarding (interactive)
+# - Start the gateway container
 ```
+
+### Step 1.4: Verify Deployment
+
+```bash
+# Check container status
+podman-compose ps
+
+# View logs
+podman-compose logs -f openclaw-gateway
+
+# Test health endpoint
+curl http://127.0.0.1:18789/health
+
+# Check from CLI (inside container)
+podman-compose exec openclaw-gateway node dist/index.js health --token "$OPENCLAW_GATEWAY_TOKEN"
+```
+
+### Step 1.5: Test from MacBook (SSH Tunnel)
+
+```bash
+# On MacBook, create SSH tunnel
+ssh -N -L 18789:127.0.0.1:18789 user@homelab-node
+
+# In another terminal or browser, test access
+curl http://127.0.0.1:18789/health
+
+# Open browser to Control UI
+open http://127.0.0.1:18789
+# Paste your gateway token when prompted
+```
+
+**Phase 1 Success Criteria:**
+- ✅ Container running and healthy
+- ✅ Gateway accessible via SSH tunnel from MacBook
+- ✅ Can access Control UI and authenticate
+- ✅ Config persists across container restarts
 
 ---
 
-### Phase 2: Remote Access Setup
+## Phase 2: Octant Infrastructure Integration
 
-#### Option 1: SSH Tunnel (Simplest)
+**Goal:** Integrate with existing Octant services (Tailscale, 1Password)
+
+**Duration:** 2-4 hours
+
+**Prerequisites:**
+- Phase 1 completed successfully
+- Familiarity with your Octant setup
+- Access to 1Password vault
+
+### Step 2.1: Tailscale Integration
+
+**Option A: Use existing Tailscale setup**
+
+Your homelab nodes are already on Tailscale. Update the gateway bind setting:
 
 ```bash
-# From MacBook
-ssh -N -L 18789:127.0.0.1:18789 user@homelab-server
-# Open http://127.0.0.1:18789 in browser
+# Edit .env
+OPENCLAW_GATEWAY_BIND=lan  # or specify Tailscale IP
+
+# Restart gateway
+podman-compose restart openclaw-gateway
 ```
 
-#### Option 2: Tailscale (Best UX)
+**Option B: Use Tailscale Serve for HTTPS**
 
 ```bash
-# Install on both homelab and MacBook
-curl -fsSL https://tailscale.com/install.sh | sh
-tailscale up
-
-# On homelab (optional, for HTTPS):
+# On homelab node
 tailscale serve https / http://127.0.0.1:18789
 
-# Access from MacBook:
-# https://homelab-server.tailnet-name.ts.net
+# Access from MacBook (no SSH tunnel needed!)
+open https://homelab-node.your-tailnet.ts.net
 ```
+
+**Option C: Route through Traefik** (Octant's existing ingress)
+
+See Section "Traefik Integration" below for Consul service discovery setup.
+
+### Step 2.2: 1Password Integration
+
+Store your OpenClaw secrets in 1Password and reference them in the deployment.
+
+**Create 1Password Items:**
+```bash
+# Using op CLI (if installed in Octant)
+op item create --category=password \
+  --title="OpenClaw Gateway Token" \
+  --vault="Homelab" \
+  token[password]=$(openssl rand -hex 32)
+
+# For Claude API key
+op item create --category=password \
+  --title="Claude API Key" \
+  --vault="Homelab" \
+  key[password]="your-claude-key"
+```
+
+**Reference in podman-compose or env:**
+```bash
+# Option 1: Use op CLI to inject at runtime
+export OPENCLAW_GATEWAY_TOKEN=$(op read "op://Homelab/OpenClaw Gateway Token/token")
+export CLAUDE_AI_SESSION_KEY=$(op read "op://Homelab/Claude API Key/key")
+
+# Option 2: Use Nomad's 1Password integration (Phase 3)
+```
+
+### Step 2.3: Consul Service Discovery (Optional)
+
+If you want OpenClaw to register with Consul (useful for Traefik routing):
+
+```bash
+# Create Consul service definition
+cat > /etc/consul.d/openclaw.json <<EOF
+{
+  "service": {
+    "name": "openclaw",
+    "port": 18789,
+    "tags": ["openclaw", "gateway"],
+    "check": {
+      "http": "http://127.0.0.1:18789/health",
+      "interval": "10s",
+      "timeout": "2s"
+    }
+  }
+}
+EOF
+
+# Reload Consul
+consul reload
+```
+
+**Phase 2 Success Criteria:**
+- ✅ Gateway accessible via Tailscale (no SSH tunnel needed)
+- ✅ Secrets stored in 1Password
+- ✅ Optional: Consul service registration working
+- ✅ Optional: Traefik routing configured
 
 ---
 
-### Phase 3: MacBook Integration
+## Phase 3: Nomad Orchestration (Full Octant Integration)
 
-#### Local Mac App (Optional)
+**Goal:** Deploy OpenClaw as a Nomad job with full infrastructure-as-code
+
+**Duration:** 4-8 hours
+
+**Prerequisites:**
+- Phase 2 completed successfully
+- Octant cluster healthy (Consul + Nomad)
+- Terraform experience
+- Understanding of Nomad job specifications
+
+### Step 3.1: Create Nomad Job Specification
+
+Create `openclaw.nomad.hcl` based on Octant patterns:
+
+```hcl
+job "openclaw" {
+  datacenters = ["dc1"]
+  type = "service"
+
+  group "gateway" {
+    count = 1
+
+    network {
+      port "http" {
+        static = 18789
+        to     = 18789
+      }
+      port "canvas" {
+        static = 18793
+        to     = 18793
+      }
+    }
+
+    volume "openclaw-config" {
+      type      = "host"
+      source    = "openclaw-config"
+      read_only = false
+    }
+
+    volume "openclaw-workspace" {
+      type      = "host"
+      source    = "openclaw-workspace"
+      read_only = false
+    }
+
+    task "gateway" {
+      driver = "podman"
+
+      config {
+        image = "openclaw:local"
+        ports = ["http", "canvas"]
+
+        args = [
+          "node",
+          "dist/index.js",
+          "gateway",
+          "--bind", "lan",
+          "--port", "18789"
+        ]
+
+        # Rootless Podman
+        userns_mode = "host"
+      }
+
+      volume_mount {
+        volume      = "openclaw-config"
+        destination = "/home/node/.openclaw"
+        read_only   = false
+      }
+
+      volume_mount {
+        volume      = "openclaw-workspace"
+        destination = "/home/node/.openclaw/workspace"
+        read_only   = false
+      }
+
+      env {
+        HOME = "/home/node"
+        TERM = "xterm-256color"
+      }
+
+      # 1Password secrets injection
+      template {
+        data = <<EOT
+{{with secret "kv/data/openclaw"}}
+OPENCLAW_GATEWAY_TOKEN={{.Data.data.gateway_token}}
+CLAUDE_AI_SESSION_KEY={{.Data.data.claude_api_key}}
+{{end}}
+EOT
+        destination = "secrets/file.env"
+        env         = true
+      }
+
+      service {
+        name = "openclaw"
+        port = "http"
+        tags = [
+          "traefik.enable=true",
+          "traefik.http.routers.openclaw.rule=Host(`openclaw.yourdomain.com`)",
+          "traefik.http.routers.openclaw.tls=true"
+        ]
+
+        check {
+          type     = "http"
+          path     = "/health"
+          interval = "10s"
+          timeout  = "2s"
+        }
+      }
+
+      resources {
+        cpu    = 500  # MHz
+        memory = 1024  # MB
+      }
+    }
+  }
+}
+```
+
+### Step 3.2: Configure Host Volumes
+
+On your Nomad client nodes, configure host volumes:
+
+```bash
+# Edit Nomad client configuration
+sudo vi /etc/nomad.d/client.hcl
+```
+
+Add:
+```hcl
+client {
+  host_volume "openclaw-config" {
+    path      = "/opt/openclaw/config"
+    read_only = false
+  }
+
+  host_volume "openclaw-workspace" {
+    path      = "/opt/openclaw/workspace"
+    read_only = false
+  }
+}
+```
+
+```bash
+# Create directories
+sudo mkdir -p /opt/openclaw/{config,workspace}
+sudo chown -R 1000:1000 /opt/openclaw
+
+# Restart Nomad client
+sudo systemctl restart nomad
+```
+
+### Step 3.3: Create Terraform Module
+
+Following Octant patterns, create a Terraform module:
+
+```bash
+mkdir -p terraform/openclaw
+cd terraform/openclaw
+```
+
+Create `main.tf`:
+```hcl
+resource "nomad_job" "openclaw" {
+  jobspec = file("${path.module}/openclaw.nomad.hcl")
+
+  hcl2 {
+    enabled = true
+  }
+}
+```
+
+Create `variables.tf`, `outputs.tf`, `versions.tf` (following other Octant modules).
+
+### Step 3.4: Deploy via Terraform
+
+```bash
+cd terraform/openclaw
+
+# Initialize
+terraform init
+
+# Plan
+terraform plan
+
+# Apply
+terraform apply
+
+# Verify
+nomad status openclaw
+nomad logs -f openclaw
+```
+
+### Step 3.5: Traefik Integration
+
+With Consul service discovery and Traefik tags, OpenClaw will be automatically routed:
+
+```bash
+# Access via Traefik
+curl https://openclaw.yourdomain.com/health
+
+# Check Consul services
+consul catalog services
+consul catalog service openclaw
+```
+
+**Phase 3 Success Criteria:**
+- ✅ OpenClaw deployed as Nomad job
+- ✅ Scheduled on cluster node
+- ✅ Consul service registration working
+- ✅ Traefik routing configured
+- ✅ Health checks passing
+- ✅ Accessible via HTTPS with Let's Encrypt cert
+- ✅ Secrets loaded from 1Password/Vault
+- ✅ Fully managed via Terraform
+
+---
+
+## MacBook Agent Setup
+
+**Goal:** Run an OpenClaw agent on your MacBook that works alongside homelab agents
+
+### Option 1: Mac App (Simplest)
 
 ```bash
 # Download OpenClaw.app
-# Runs independent local gateway
-# Access via menubar app
+# Install to /Applications
+# Launch and run onboarding
+
+# The Mac app runs a local gateway
+# Separate from homelab gateway
+# Different config, workspace, messaging accounts
 ```
 
-#### Connect to Remote Gateway
+### Option 2: Connect to Homelab Gateway
 
+```bash
+# No local gateway needed
+# Use Tailscale to access homelab gateway
+open https://homelab-node.your-tailnet.ts.net
+
+# Or SSH tunnel
+ssh -N -L 18789:127.0.0.1:18789 user@homelab-node
+open http://127.0.0.1:18789
+```
+
+### Option 3: Hybrid (Recommended)
+
+Run both:
+- **Homelab gateway:** Always-on, handles scheduled tasks, heavy workloads
+- **MacBook gateway:** Mobile work, offline capability, local testing
+
+Use different:
+- Messaging accounts (different WhatsApp numbers, Telegram bots, etc.)
+- Workspaces
+- Agent configurations
+
+---
+
+### Phase 4: Multi-Agent Setup (Optional)
 ```bash
 # Use SSH tunnel or Tailscale
 # Access Control UI in browser
@@ -601,7 +981,6 @@ tailscale serve https / http://127.0.0.1:18789
 ---
 
 ### Phase 4: Multi-Agent Setup (Optional)
-
 ```bash
 # Edit ~/.openclaw/openclaw.json
 # Add agents.list configuration
@@ -615,7 +994,6 @@ openclaw gateway restart
 ## Testing & Validation
 
 ### Quick Test (Dev Profile)
-
 ```bash
 # Test without affecting main setup
 openclaw --dev setup
@@ -628,7 +1006,6 @@ rm -rf ~/.openclaw-dev
 ```
 
 ### Health Checks
-
 ```bash
 # CLI health check
 openclaw health
@@ -641,12 +1018,12 @@ openclaw gateway health --json
 
 # Check service status
 systemctl --user status openclaw-gateway  # systemd
-podman compose ps  # podman
+podman-compose ps  # podman
 
 # View logs
 openclaw logs --follow  # CLI method
 journalctl --user -u openclaw-gateway -f  # systemd
-podman compose logs -f openclaw-gateway  # podman
+podman-compose logs -f openclaw-gateway  # podman
 ```
 
 ---
@@ -669,7 +1046,6 @@ podman compose logs -f openclaw-gateway  # podman
 ### Container-Specific Persistence
 
 **Critical:** If using Podman/Docker:
-
 - External binaries MUST be in the Dockerfile
 - Runtime installations are LOST on restart
 - Volume mounts preserve config/workspace only
@@ -682,7 +1058,6 @@ podman compose logs -f openclaw-gateway  # podman
 ### Gateway Won't Start
 
 #### Native systemd:
-
 ```bash
 # Check service status
 systemctl --user status openclaw-gateway
@@ -698,19 +1073,18 @@ openclaw gateway --port 18789 --verbose
 ```
 
 #### Podman:
-
 ```bash
 # Check container status
-podman compose ps
+podman-compose ps
 
 # View logs
-podman compose logs openclaw-gateway
+podman-compose logs openclaw-gateway
 
 # Check for port conflicts
 ss -ltnp | grep 18789
 
 # Test manual start
-podman compose up openclaw-gateway
+podman-compose up openclaw-gateway
 ```
 
 ---
@@ -764,15 +1138,15 @@ tailscale status
 
 ```bash
 # Check if binary exists in container
-podman compose exec openclaw-gateway which gog
+podman-compose exec openclaw-gateway which gog
 
 # If not found, binary was not baked into image
 # Add to Dockerfile and rebuild:
 podman build -t openclaw:local -f Dockerfile .
-podman compose up -d --force-recreate openclaw-gateway
+podman-compose up -d --force-recreate openclaw-gateway
 
 # Verify again
-podman compose exec openclaw-gateway which gog
+podman-compose exec openclaw-gateway which gog
 ```
 
 ---
@@ -780,21 +1154,18 @@ podman compose exec openclaw-gateway which gog
 ## Resource Requirements
 
 ### Minimum
-
 - 1GB RAM
 - 1 CPU core
 - 2GB disk space
 - Stable internet connection
 
 ### Recommended
-
 - 2GB+ RAM
 - 2+ CPU cores
 - 10GB disk space (for workspaces, logs, sandboxes)
 - Stable internet connection
 
 ### Raspberry Pi
-
 - Pi 4/5 with 2GB+ RAM supported
 - Add 2GB swap for stability
 - See: https://docs.openclaw.ai/platforms/raspberry-pi
@@ -804,7 +1175,6 @@ podman compose exec openclaw-gateway which gog
 ## References
 
 ### Official Documentation
-
 - Linux Platform Guide: https://docs.openclaw.ai/platforms/linux
 - Docker Installation: https://docs.openclaw.ai/install/docker
 - Gateway Runbook: https://docs.openclaw.ai/gateway
@@ -814,7 +1184,6 @@ podman compose exec openclaw-gateway which gog
 - Remote Access: https://docs.openclaw.ai/gateway/remote
 
 ### Production Deployment Guides
-
 - Hetzner (Docker VPS): https://docs.openclaw.ai/platforms/hetzner
 - DigitalOcean: https://docs.openclaw.ai/platforms/digitalocean
 - Raspberry Pi: https://docs.openclaw.ai/platforms/raspberry-pi
@@ -822,74 +1191,176 @@ podman compose exec openclaw-gateway which gog
 - Fly.io: https://docs.openclaw.ai/platforms/fly
 
 ### Security & Hardening
-
 - Ansible Deployment: https://docs.openclaw.ai/install/ansible
 - openclaw-ansible repo: https://github.com/openclaw/openclaw-ansible
 
 ### External Resources
-
 - Docker - OpenClaw: https://docs.openclaw.ai/install/docker
 - Deploy OpenClaw on AWS or Hetzner: https://www.pulumi.com/blog/deploy-openclaw-aws-hetzner/
 - OpenClaw Complete Guide 2026: https://www.nxcode.io/resources/news/openclaw-complete-guide-2026
 
 ---
 
-## Decision Matrix
+## Decision Matrix (Octant Context)
 
-| Requirement | Native systemd | Podman Container | Ansible Hardened |
-|-------------|----------------|------------------|------------------|
-| Official support | ✅ Yes | ⚠️ Unofficial | ✅ Yes |
-| Ease of setup | ✅ Simple | ⚠️ Moderate | ⚠️ Complex |
-| Ease of updates | ✅ `npm update` | ⚠️ Rebuild image | ✅ `npm update` |
-| Isolation | ⚠️ Process-level | ✅ Container-level | ⚠️ Process-level |
-| Performance | ✅ Native | ⚠️ Container overhead | ✅ Native |
-| Troubleshooting | ✅ Simple | ⚠️ Complex | ✅ Simple |
-| Security | ⚠️ Basic | ✅ Good | ✅ Excellent |
-| Production-ready | ✅ Yes | ⚠️ Untested | ✅ Yes |
-| Best for | General use | Testing/isolation | Production security |
+| Requirement | Podman Container | Native systemd | Nomad Orchestrated |
+|-------------|------------------|----------------|-------------------|
+| Official support | ⚠️ Unofficial | ✅ Yes | ⚠️ Unofficial |
+| Octant alignment | ✅ Perfect | ❌ Doesn't match | ✅ Perfect |
+| Ease of setup | ✅ Simple | ✅ Simple | ⚠️ Complex |
+| Ease of updates | ⚠️ Rebuild image | ✅ `npm update` | ✅ Terraform apply |
+| Isolation | ✅ Container-level | ⚠️ Process-level | ✅ Container-level |
+| Performance | ⚠️ Minimal overhead | ✅ Native | ⚠️ Minimal overhead |
+| Troubleshooting | ⚠️ Moderate | ✅ Simple | ⚠️ Complex |
+| Tailscale ready | ✅ Yes | ✅ Yes | ✅ Yes |
+| 1Password ready | ✅ Manual | ✅ Manual | ✅ Automated |
+| Path to Nomad | ✅ Direct | ❌ Requires rewrite | ✅ Already there |
+| Production-ready | ⚠️ Testing phase | ✅ Yes | ✅ Yes |
+| Best for | **Phase 1 testing** | Quick testing | **Phase 3 production** |
+
+**Recommendation for Octant:** Start with Podman Container (Phase 1), then progress to Nomad Orchestrated (Phase 3)
 
 ---
 
-## Next Steps Checklist
+## Next Steps Checklist for Octant Integration
 
-- [ ] Choose deployment approach (systemd / Podman / Ansible)
-- [ ] Choose access method (SSH tunnel / Tailscale / Direct)
-- [ ] Set up homelab gateway
-- [ ] Test remote access from MacBook
-- [ ] Decide on MacBook integration (local app / remote / hybrid)
-- [ ] Configure multi-agent routing (if needed)
-- [ ] Set up agent sandboxing (optional)
-- [ ] Configure backup strategy for `~/.openclaw`
-- [ ] Document your specific configuration
+### Phase 1: Standalone Testing
+- [ ] Clone OpenClaw fork with Podman branch
+- [ ] Configure .env file with basic settings
+- [ ] Run `./podman-setup.sh` on homelab node
+- [ ] Verify container health and logs
+- [ ] Test SSH tunnel access from MacBook
+- [ ] Validate Control UI access and authentication
+- [ ] Test basic agent functionality
+
+### Phase 2: Infrastructure Integration
+- [ ] Configure gateway to bind to Tailscale (or use Tailscale Serve)
+- [ ] Test Tailscale access from MacBook (no tunnel needed)
+- [ ] Create 1Password items for OpenClaw secrets
+- [ ] Update deployment to reference 1Password secrets
+- [ ] Optional: Configure Consul service registration
+- [ ] Optional: Configure Traefik routing
+- [ ] Document Tailscale access patterns
+
+### Phase 3: Nomad Deployment (When Ready)
+- [ ] Create Nomad job specification
+- [ ] Configure host volumes on Nomad clients
+- [ ] Create Terraform module following Octant patterns
+- [ ] Test Nomad job deployment
+- [ ] Verify Consul service registration
+- [ ] Configure Traefik routing with Let's Encrypt
+- [ ] Integrate 1Password secrets in Nomad template
+- [ ] Update Octant documentation with OpenClaw module
+
+### MacBook Setup
+- [ ] Decide on MacBook strategy (local app / remote / hybrid)
+- [ ] If local app: Download and install OpenClaw.app
+- [ ] If remote only: Document Tailscale access method
+- [ ] If hybrid: Configure both with separate profiles
+- [ ] Test agent functionality from MacBook
+
+### Ongoing
+- [ ] Configure backup strategy for `~/.openclaw` volumes
+- [ ] Document your specific Octant integration
 - [ ] Test failover and recovery procedures
+- [ ] Monitor resource usage in Nomad
+- [ ] Plan for OpenClaw updates (image rebuilds)
 
 ---
 
 ## Questions to Consider
 
-1. **Deployment approach:** Native systemd (recommended) or Podman containers?
-2. **Access method:** SSH tunnel (simple) or Tailscale VPN (better UX)?
-3. **MacBook usage:** Local gateway, remote only, or both?
-4. **Multi-agent needs:** Single agent or multiple isolated agents?
-5. **Security level:** Basic (SSH tunnel), Enhanced (Tailscale), or Maximum (Ansible)?
-6. **Backup strategy:** How will you back up `~/.openclaw`?
+1. **Which phase to start with?**
+   - Phase 1 for testing (standalone Podman)
+   - Skip to Phase 2 if confident (Tailscale integration)
+   - Wait for Phase 3 if you want full Nomad orchestration
+
+2. **MacBook strategy:**
+   - Local Mac app only (simplest, offline-capable)
+   - Remote gateway only (leverage homelab power)
+   - Hybrid (best of both worlds)
+
+3. **Multi-agent needs:**
+   - Single agent for personal use
+   - Multiple agents for family/work separation
+   - Separate agents per messaging account
+
+4. **Nomad deployment timing:**
+   - Deploy to Nomad immediately (if comfortable with Nomad)
+   - Wait until Phase 1 testing is successful
+   - Add to Octant Terraform modules alongside other services
+
+5. **Integration priorities:**
+   - Start with Tailscale (already in place)
+   - Add 1Password integration (Phase 2)
+   - Full Nomad orchestration (Phase 3)
+   - Traefik routing (optional, Phase 3)
+
+6. **Backup strategy:**
+   - How will you back up `~/.openclaw` volumes?
+   - Include in existing Octant backup procedures?
+   - Use Restic (already in Octant) for OpenClaw data?
 
 ---
 
 ## Conclusion
 
-**Recommended starting point for most homelab users:**
+**Recommended path for Octant homelab:**
 
-1. Use **native systemd installation** on Linux server (Option A)
-2. Access via **SSH tunnel** from MacBook (simple, secure)
-3. Install **Mac app** for local/offline work (optional)
-4. Upgrade to **Tailscale VPN** when ready for better UX
-5. Consider **Ansible hardening** for production-grade security
+### Immediate (Phase 1)
+1. **Deploy with Podman standalone** on homelab node
+2. Test basic functionality with **SSH tunnel** from MacBook
+3. Validate agent behavior and resource usage
+4. Identify any skill binaries that need to be baked into image
 
-The Podman approach works but adds complexity without official support. Start simple, add complexity only as needed.
+### Short-term (Phase 2)
+5. **Switch to Tailscale access** (already deployed in Octant)
+6. **Move secrets to 1Password** (already integrated in Octant)
+7. Optional: Register with **Consul** for service discovery
+8. Optional: Route through **Traefik** for HTTPS
+
+### Long-term (Phase 3)
+9. **Create Nomad job specification** following Octant patterns
+10. **Wrap in Terraform module** alongside other Octant services
+11. Deploy via **Terraform apply** like other services
+12. Monitor and iterate with Nomad's scheduling and health checks
+
+### MacBook Setup
+13. Choose your strategy: **Hybrid approach recommended**
+    - Homelab gateway for always-on, heavy workloads
+    - MacBook app for mobile/offline work
+14. Use separate messaging accounts for each gateway
+15. Leverage Tailscale for seamless access to homelab gateway
 
 ---
 
-**Document Version:** 1.0
+## Why This Approach?
+
+**Aligns with Octant philosophy:**
+- ✅ Infrastructure as code (Terraform)
+- ✅ Rootless Podman containers
+- ✅ Nomad orchestration
+- ✅ Consul service discovery
+- ✅ Tailscale connectivity
+- ✅ 1Password secrets management
+- ✅ Traefik ingress routing
+
+**Progressive complexity:**
+- Start simple, validate the concept
+- Add integration one layer at a time
+- Reach full orchestration when confident
+- Maintain consistency with other Octant services
+
+**Production-ready path:**
+- Test thoroughly in standalone mode
+- Integrate with existing, proven infrastructure
+- Deploy to battle-tested Nomad platform
+- Monitor and scale as needed
+
+---
+
+**Document Version:** 2.0 (Octant-specific)
 **Last Updated:** 2026-01-31
-**Maintainer:** Homelab deployment planning
+**Homelab Framework:** [Octant](https://github.com/shamsway/octant)
+**OpenClaw Fork:** [shamsway/openclaw](https://github.com/shamsway/openclaw)
+**Target Branch:** `feature/podman-homelab-deployment`
