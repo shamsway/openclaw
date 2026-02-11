@@ -97,48 +97,97 @@ This allows you to:
 
 **Best for:** Testing in Octant environment, eventual Nomad deployment
 
-**Installation:**
+**Build and Run:**
+
 ```bash
-# Install Node.js 22+
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
+# Build the homelab image (includes Nomad, Consul, Terraform, op CLIs)
+podman build -t openclaw-homelab:local -f homelab/Dockerfile .
 
-# Install OpenClaw globally
-sudo npm i -g openclaw@latest
+# Or use the standard base image (no infrastructure tools)
+podman build -t openclaw:local -f Dockerfile .
 
-# Run onboarding (interactive)
-openclaw onboard --install-daemon
+# Run setup (interactive onboarding)
+OPENCLAW_IMAGE=openclaw-homelab:local ./podman-setup.sh
 
-# This creates ~/.config/systemd/user/openclaw-gateway.service
-# and enables systemd user service with lingering
-
-# Verify installation
-systemctl --user status openclaw-gateway
-openclaw health
-openclaw status
+# Service management
+podman-compose up -d openclaw-gateway
+podman-compose logs -f openclaw-gateway
+podman-compose restart openclaw-gateway
 ```
 
-**Service Management:**
+### Homelab Image: Infrastructure Tools
+
+The homelab agent (Jerry and future nodes) needs CLI access to the Octant stack.
+`homelab/Dockerfile` extends the base OpenClaw image with:
+
+| Tool | Source | Purpose |
+|------|--------|---------|
+| `nomad` | HashiCorp APT repo | Query jobs, allocations, logs |
+| `consul` | HashiCorp APT repo | Service catalog, health checks |
+| `terraform` | HashiCorp APT repo | Plan/apply infrastructure changes |
+| `op` | 1Password binary download | Read secrets from 1Password vaults |
+| `jq`, `curl`, `ssh`, `dig` | Debian APT | General ops utilities |
+
+**Why not Homebrew?**
+
+Homebrew (Linuxbrew) is not suitable for containers:
+
+- Requires a non-root user to install and run
+- Adds 500 MB+ overhead per formula
+- Designed for interactive use, not reproducible builds
+- Can compile from source (slow, non-deterministic)
+
+Use the [HashiCorp APT repository](https://www.hashicorp.com/en/blog/announcing-the-hashicorp-linux-repository)
+and direct binary downloads instead — same tools, deterministic, minimal footprint.
+
+**Tailscale in the container:**
+
+The container does NOT need `tailscaled` running inside it. The host already
+runs Tailscale, so the container inherits network connectivity automatically
+(Podman uses host networking or bridges through). The `tailscale` binary can
+be installed for status queries, but it needs access to the host daemon socket
+(`-v /var/run/tailscale:/var/run/tailscale`). The simpler alternative is using
+the Tailscale MCP server (listed in `homelab/jerry/TOOLS.md`).
+
+### Runtime Environment Variables
+
+Pass these via `.env` or `docker-compose` environment (never bake into the image):
+
 ```bash
-# Status
-systemctl --user status openclaw-gateway
-openclaw gateway status
+# ── Nomad ──────────────────────────────────────────────────────────────────────
+NOMAD_ADDR=http://nomad.service.consul:4646   # or http://<node-ip>:4646
+NOMAD_TOKEN=<acl-token>                        # only if Nomad ACLs are enabled
 
-# Logs
-journalctl --user -u openclaw-gateway -f
-openclaw logs --follow
+# ── Consul ─────────────────────────────────────────────────────────────────────
+CONSUL_HTTP_ADDR=http://127.0.0.1:8500         # or http://consul.service.consul:8500
+CONSUL_HTTP_TOKEN=<acl-token>                  # only if Consul ACLs are enabled
 
-# Control
-systemctl --user stop openclaw-gateway
-systemctl --user start openclaw-gateway
-systemctl --user restart openclaw-gateway
-# OR use CLI shortcuts:
-openclaw gateway stop
-openclaw gateway start
-openclaw gateway restart
+# ── 1Password CLI ─────────────────────────────────────────────────────────────
+# Option A: Service Account (recommended for headless/container use)
+OP_SERVICE_ACCOUNT_TOKEN=<service-account-token>
 
-# Enable lingering (survive logout)
-sudo loginctl enable-linger $USER
+# Option B: 1Password Connect server (if you run op-connect in your homelab)
+OP_CONNECT_HOST=https://op-connect.your-tailnet.ts.net
+OP_CONNECT_TOKEN=<connect-token>
+
+# ── Terraform (optional) ───────────────────────────────────────────────────────
+TF_TOKEN_app_terraform_io=<token>              # only if using Terraform Cloud
+```
+
+For Nomad job deployments (Phase 3), inject these via the job's `template` block
+using Vault or 1Password instead of environment variables:
+
+```hcl
+template {
+  data        = <<EOT
+{{with secret "kv/data/openclaw"}}
+NOMAD_TOKEN={{.Data.data.nomad_token}}
+OP_SERVICE_ACCOUNT_TOKEN={{.Data.data.op_service_account_token}}
+{{end}}
+EOT
+  destination = "secrets/infra.env"
+  env         = true
+}
 ```
 
 ---
@@ -178,6 +227,7 @@ sudo loginctl enable-linger $USER
    - Run `fix-podman-permissions.sh` before setup
 
 **Enhanced Dockerfile Example:**
+
 ```dockerfile
 FROM node:22-bookworm
 
@@ -615,22 +665,32 @@ vi .env
 ```
 
 **Key variables to set:**
+
 ```bash
-OPENCLAW_IMAGE=openclaw:local
+# Use the homelab image (includes Nomad, Consul, Terraform, op CLIs)
+OPENCLAW_IMAGE=openclaw-homelab:local
 OPENCLAW_GATEWAY_TOKEN=<generate-with-openssl-rand-hex-32>
 OPENCLAW_GATEWAY_BIND=loopback  # Start with loopback for testing
 OPENCLAW_CONFIG_DIR=/home/youruser/.openclaw
 OPENCLAW_WORKSPACE_DIR=/home/youruser/.openclaw/workspace
+
+# Homelab infrastructure (add these for Jerry's ops capabilities)
+NOMAD_ADDR=http://nomad.service.consul:4646
+CONSUL_HTTP_ADDR=http://127.0.0.1:8500
+OP_SERVICE_ACCOUNT_TOKEN=<1password-service-account-token>
 ```
 
 ### Step 1.3: Build and Deploy
 
 ```bash
-# Run the podman setup script
+# Build the homelab image (with Nomad, Consul, Terraform, op CLIs)
+podman build -t openclaw-homelab:local -f homelab/Dockerfile .
+
+# Run the podman setup script (uses OPENCLAW_IMAGE from .env)
 ./podman-setup.sh
 
 # This will:
-# - Build the OpenClaw image with Podman
+# - Use the already-built homelab image
 # - Set up persistent directories
 # - Run onboarding (interactive)
 # - Start the gateway container

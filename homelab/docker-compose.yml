@@ -1,0 +1,71 @@
+# homelab/docker-compose.yml - OpenClaw homelab gateway (Jerry and future nodes)
+#
+# Standalone compose file for the homelab image. Includes:
+#   - Build section pointing to homelab/Dockerfile (Nomad, Consul, Terraform, op CLIs)
+#   - HashiCorp + 1Password runtime environment variables
+#   - Optional Tailscale socket mount (see volumes comment below)
+#
+# Usage (run from repo root):
+#   # Docker:
+#   docker compose -f homelab/docker-compose.yml up -d
+#
+#   # Podman (rootless):
+#   podman compose -f homelab/docker-compose.yml \
+#                  -f homelab/docker-compose.podman.yml up -d
+#
+# Build the image first:
+#   podman build -t openclaw-homelab:local -f homelab/Dockerfile .
+#
+# Copy homelab/.env.example to .env and fill in your values before running.
+
+services:
+  openclaw-gateway:
+    build:
+      # Build context is the repo root so COPY package.json etc. resolves correctly.
+      context: ..
+      dockerfile: homelab/Dockerfile
+    image: ${OPENCLAW_IMAGE:-openclaw-homelab:local}
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY:-}
+      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY:-}
+      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE:-}
+      # ── HashiCorp tools ────────────────────────────────────────────────────
+      NOMAD_ADDR: ${NOMAD_ADDR:-http://nomad.service.consul:4646}
+      NOMAD_TOKEN: ${NOMAD_TOKEN:-}
+      CONSUL_HTTP_ADDR: ${CONSUL_HTTP_ADDR:-http://127.0.0.1:8500}
+      CONSUL_HTTP_TOKEN: ${CONSUL_HTTP_TOKEN:-}
+      # ── 1Password CLI ──────────────────────────────────────────────────────
+      # Option A: service account (recommended for headless / container use)
+      OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN:-}
+      # Option B: 1Password Connect server
+      OP_CONNECT_HOST: ${OP_CONNECT_HOST:-}
+      OP_CONNECT_TOKEN: ${OP_CONNECT_TOKEN:-}
+      # ── Terraform (optional) ───────────────────────────────────────────────
+      TF_TOKEN_app_terraform_io: ${TF_TOKEN_app_terraform_io:-}
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
+      # Tailscale socket — uncomment to allow the tailscale CLI to query the
+      # host daemon from inside the container (status, ip, etc.).
+      # The container inherits host network connectivity automatically;
+      # this mount is only needed if Jerry uses the tailscale CLI directly.
+      # Prefer the Tailscale MCP server (see homelab/jerry/TOOLS.md) instead.
+      # - /var/run/tailscale:/var/run/tailscale:ro
+    ports:
+      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+      - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
+    init: true
+    restart: unless-stopped
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--bind",
+        "${OPENCLAW_GATEWAY_BIND:-lan}",
+        "--port",
+        "${OPENCLAW_GATEWAY_PORT:-18789}",
+      ]

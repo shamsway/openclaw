@@ -1,0 +1,16 @@
+# homelab/docker-compose.podman.yml - Podman rootless overrides for homelab
+#
+# Extends homelab/docker-compose.yml with Podman-specific user namespace
+# mappings required for rootless operation (Octant's preferred mode).
+#
+# The userns_mode: keep-id setting maps the host user to UID 1000 (the
+# container's node user), so bind-mounted volumes are accessible to both.
+#
+# Usage:
+#   podman compose -f homelab/docker-compose.yml \
+#                  -f homelab/docker-compose.podman.yml up -d
+
+services:
+  openclaw-gateway:
+    # Map host user → container UID 1000 (node user) for volume access.
+    userns_mode: "keep-id:uid=1000,gid=1000"
