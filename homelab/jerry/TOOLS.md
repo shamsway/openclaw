@@ -5,26 +5,31 @@ Notes on available MCP servers, their quirks, and anything else worth rememberin
 ## MCP Servers
 
 ### nomad
+
 Nomad cluster operations.
 - **Endpoint:** *(e.g. http://nomad.service.consul:4646)*
 - **Notes:** *(quirks, common queries, useful job names)*
 
 ### gcp
+
 Google Cloud resources.
 - **Project:** *(GCP project ID if applicable)*
 - **Notes:**
 
 ### tailscale
+
 Tailscale mesh network.
 - **Tailnet:** *(your tailnet name)*
 - **Nodes:** Jerry (this one), + others as they come online
 - **Notes:**
 
 ### infra
+
 Infrastructure-level operations.
 - **Notes:** *(what this covers — Ansible playbooks? Terraform? Both?)*
 
 ### a2a-hub
+
 Agent-to-agent router. Dispatches tasks to specialized agents once they're online.
 - **Notes:** *(routing logic, which agents are registered)*
 
