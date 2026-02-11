@@ -85,7 +85,7 @@ case "$CMD" in
     podman push --tls-verify=false "$REMOTE" "$@"
     ;;
   pull)
-    LOCAL="${OPENCLAW_IMAGE:-openclaw-homelab:local}"
+    LOCAL="${OPENCLAW_IMAGE:-openclaw:local}"
     REMOTE="$(_registry_image "$LOCAL")"
     echo "Pulling ${REMOTE} (--tls-verify=false)"
     podman pull --tls-verify=false "$REMOTE" "$@"
