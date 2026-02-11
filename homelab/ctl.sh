@@ -12,8 +12,17 @@
 #   down     Stop and remove containers
 #   logs     Follow gateway logs (podman compose logs -f)
 #   build    Build the homelab image (openclaw-homelab:local)
+#   push     Tag and push the image to OPENCLAW_REGISTRY (--tls-verify=false)
+#   pull     Pull the image from OPENCLAW_REGISTRY and tag it locally
 #   restart  Restart the gateway container
 #   ps       Show container status
+#
+# Registry workflow (multi-node lab):
+#   Build node:   ./homelab/ctl.sh build && ./homelab/ctl.sh push
+#   Remote nodes: ./homelab/ctl.sh pull && ./homelab/ctl.sh up
+#
+# OPENCLAW_REGISTRY defaults to registry.service.consul:8082 (insecure HTTP).
+# Set it in .env or export it before running this script.
 #
 # Extra args are forwarded to the underlying podman compose command, e.g.:
 #   ./homelab/ctl.sh logs openclaw-gateway
@@ -29,6 +38,24 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 COMPOSE_FILES=(-f homelab/docker-compose.yml -f homelab/docker-compose.podman.yml)
+
+# Load .env if present so OPENCLAW_IMAGE / OPENCLAW_REGISTRY are available
+# when running push/pull outside of compose (compose loads .env itself).
+if [[ -f "$REPO_ROOT/.env" ]]; then
+  # shellcheck disable=SC1091
+  set -a; source "$REPO_ROOT/.env"; set +a
+fi
+
+REGISTRY="${OPENCLAW_REGISTRY:-registry.service.consul:8082}"
+
+# _registry_image LOCAL_IMAGE
+# Returns the fully-qualified registry image name.
+# Strips any existing registry prefix so the result is always REGISTRY/name:tag.
+_registry_image() {
+  local img="$1"
+  local base="${img#*/}"  # drop host:port/... prefix when present; no-op otherwise
+  echo "${REGISTRY}/${base}"
+}
 
 CMD="${1:-help}"
 shift || true
@@ -49,6 +76,22 @@ case "$CMD" in
       -f homelab/Dockerfile \
       . "$@"
     ;;
+  push)
+    LOCAL="${OPENCLAW_IMAGE:-openclaw-homelab:local}"
+    REMOTE="$(_registry_image "$LOCAL")"
+    echo "Tagging ${LOCAL} → ${REMOTE}"
+    podman tag "$LOCAL" "$REMOTE"
+    echo "Pushing ${REMOTE} (--tls-verify=false)"
+    podman push --tls-verify=false "$REMOTE" "$@"
+    ;;
+  pull)
+    LOCAL="${OPENCLAW_IMAGE:-openclaw-homelab:local}"
+    REMOTE="$(_registry_image "$LOCAL")"
+    echo "Pulling ${REMOTE} (--tls-verify=false)"
+    podman pull --tls-verify=false "$REMOTE" "$@"
+    echo "Tagging ${REMOTE} → ${LOCAL}"
+    podman tag "$REMOTE" "$LOCAL"
+    ;;
   restart)
     podman compose "${COMPOSE_FILES[@]}" restart "$@"
     ;;
@@ -61,7 +104,7 @@ case "$CMD" in
     ;;
   *)
     echo "error: unknown command '${CMD}'" >&2
-    echo "Usage: $0 {up|down|logs|build|restart|ps}" >&2
+    echo "Usage: $0 {up|down|logs|build|push|pull|restart|ps}" >&2
     exit 1
     ;;
 esac
