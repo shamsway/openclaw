@@ -400,47 +400,111 @@ Each agent has:
 ### Example Routing
 ```json5
 {
-  "agents": {
-    "defaults": {
-      "sandbox": {
-        "mode": "non-main",
-        "scope": "agent"
-      }
+  agents: {
+    defaults: {
+      sandbox: { mode: "non-main", scope: "agent" },
     },
-    "list": [
+    list: [
       {
-        "id": "personal",
-        "displayName": "Personal Agent",
-        "workspace": "~/.openclaw/workspace-personal",
-        "sandbox": {
-          "mode": "off"  // Full access
-        }
+        id: "personal",
+        name: "Personal Agent",
+        workspace: "~/.openclaw/workspace-personal",
+        sandbox: { mode: "off" },  // Full access
       },
       {
-        "id": "family",
-        "displayName": "Family Agent",
-        "workspace": "~/.openclaw/workspace-family",
-        "sandbox": {
-          "mode": "all",  // Always sandboxed
-          "workspaceAccess": "ro"  // Read-only
-        }
-      }
-    ]
+        id: "family",
+        name: "Family Agent",
+        workspace: "~/.openclaw/workspace-family",
+        sandbox: { mode: "all", workspaceAccess: "ro" },
+      },
+    ],
   },
-  "bindings": [
-    {
-      "channel": "whatsapp",
-      "peer": { "kind": "contact", "id": "1234567890@s.whatsapp.net" },
-      "agent": "personal"
-    },
-    {
-      "channel": "telegram",
-      "peer": { "kind": "user" },
-      "agent": "family"
-    }
-  ]
+  bindings: [
+    { agentId: "personal", match: { channel: "whatsapp", peer: { kind: "dm", id: "+15551234567" } } },
+    { agentId: "family",   match: { channel: "telegram" } },
+  ],
 }
 ```
+
+### Discord & Slack: One App, Multiple Agents
+
+**A single Discord bot or Slack app can serve multiple agents.** You do not need a separate app per agent. The bot/app is just a platform identity — OpenClaw's routing layer handles the fan-out to different agent workspaces.
+
+**Routing priority (most-specific wins):**
+1. `peer` match (exact DM or channel ID)
+2. `guildId` (Discord server)
+3. `teamId` (Slack workspace)
+4. `accountId` (channel account)
+5. channel-wide match
+6. default agent
+
+#### Discord: route by server (guild) or channel
+
+```json5
+{
+  agents: {
+    list: [
+      { id: "personal", workspace: "~/.openclaw/workspace-personal" },
+      { id: "work",     workspace: "~/.openclaw/workspace-work" },
+    ],
+  },
+  bindings: [
+    // Entire Discord server A → personal agent
+    { agentId: "personal", match: { channel: "discord", guildId: "111222333444" } },
+    // Entire Discord server B → work agent
+    { agentId: "work",     match: { channel: "discord", guildId: "555666777888" } },
+    // Or a specific channel overrides the guild rule
+    { agentId: "work",     match: { channel: "discord", peer: { kind: "channel", id: "987654321" } } },
+  ],
+}
+```
+
+#### Slack: route by workspace (team) or channel
+
+```json5
+{
+  bindings: [
+    { agentId: "personal", match: { channel: "slack", teamId: "T11111111" } },
+    { agentId: "work",     match: { channel: "slack", teamId: "T22222222" } },
+    // Or a specific Slack channel
+    { agentId: "work",     match: { channel: "slack", peer: { kind: "channel", id: "C99999999" } } },
+  ],
+}
+```
+
+#### When to create separate apps (multiple tokens)
+
+You only need separate Discord Applications or Slack Apps when:
+- **Different bot personas** — you want each agent to appear under a different name/avatar in the platform
+- **Security isolation** — separate tokens = separate permission scopes
+- **Separate gateway processes** — if each homelab node runs its own full gateway (not multi-agent), each needs its own app
+
+For separate tokens, use `channels.discord.accounts` / `channels.slack.accounts`:
+
+```json5
+{
+  channels: {
+    discord: {
+      accounts: {
+        homebot: { token: "Bot TOKEN_A", name: "Home Bot" },
+        workbot: { token: "Bot TOKEN_B", name: "Work Bot" },
+      },
+    },
+  },
+  bindings: [
+    { agentId: "personal", match: { channel: "discord", accountId: "homebot" } },
+    { agentId: "work",     match: { channel: "discord", accountId: "workbot" } },
+  ],
+}
+```
+
+#### 3-node homelab topology guide
+
+| Topology | Approach |
+|----------|----------|
+| One gateway, multiple agents | One Discord app + one Slack app — route by `guildId` / `teamId` / channel |
+| One gateway per node, different servers | One app per node (each bot joins different servers) |
+| Multiple gateways, same Discord server | Separate bots required — otherwise two gateways both respond |
 
 **Documentation:** https://docs.openclaw.ai/concepts/multi-agent
 
