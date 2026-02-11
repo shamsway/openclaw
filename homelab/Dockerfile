@@ -40,7 +40,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     socat \
     dnsutils \
     iputils-ping \
+    rsync \
     && rm -rf /var/lib/apt/lists/*
+
+# ── yq (YAML processor) ───────────────────────────────────────────────────────
+# Arch-aware: dpkg returns "amd64"/"arm64" which matches yq's release naming.
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${ARCH}" \
+        -o /usr/local/bin/yq \
+    && chmod +x /usr/local/bin/yq \
+    && yq --version
 
 # ── HashiCorp APT repository ──────────────────────────────────────────────────
 # Provides: nomad, consul, terraform (and vault if ever needed)
@@ -72,6 +81,31 @@ RUN ARCH=$(dpkg --print-architecture) \
     && chmod +x /usr/local/bin/op \
     && rm /tmp/op.zip \
     && op --version
+
+# ── Google Cloud CLI (gcloud) ─────────────────────────────────────────────────
+# Used for GCP resource management: gcloud, gsutil, bq.
+# APT repo handles amd64/arm64 automatically via $(dpkg --print-architecture).
+RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+        | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/cloud.google.gpg] \
+        https://packages.cloud.google.com/apt cloud-sdk main" \
+        > /etc/apt/sources.list.d/google-cloud-sdk.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends google-cloud-cli \
+    && rm -rf /var/lib/apt/lists/* \
+    && gcloud version
+
+# ── OCI CLI (Oracle Cloud Infrastructure) ────────────────────────────────────
+# Installed into an isolated Python venv; oci binary symlinked to /usr/local/bin.
+# Requires ~/.oci/config (or OCI_* env vars) at runtime.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-venv \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/oracle/oci-cli \
+    && /opt/oracle/oci-cli/bin/pip install --quiet oci-cli \
+    && ln -sf /opt/oracle/oci-cli/bin/oci /usr/local/bin/oci \
+    && oci --version
 
 # ── Install Bun (required for OpenClaw build scripts) ────────────────────────
 RUN curl -fsSL https://bun.sh/install | bash
