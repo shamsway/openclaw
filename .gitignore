@@ -16,6 +16,7 @@ ui/src/ui/__screenshots__/
 ui/playwright-report/
 ui/test-results/
 .mcp.json
+!homelab/.mcp.json
 
 # Bun build artifacts
 *.bun-build

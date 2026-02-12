@@ -9,8 +9,8 @@ Notes on available tools, their usage patterns, and anything worth remembering.
 MCP servers are accessed via **mcporter**, installed in the image alongside other
 CLI tools (nomad, consul, op, gcloud). No agent config changes are required.
 
-**Config:** `.mcp.json` in the repo root is the source of truth. At image build
-time it is transformed to `/root/.mcporter/mcporter.json` automatically.
+**Config:** `homelab/.mcp.json` is the source of truth. At image build time it is
+transformed to `/root/.mcporter/mcporter.json` automatically.
 
 ### Discover tools
 
@@ -32,6 +32,16 @@ mcporter call context7.get-library-docs libraryId:"/facebook/react" topic:"hooks
 mcporter call context7.get-library-docs libraryId:"/kubernetes/kubernetes" topic:"pods"
 ```
 
+### mcp-nomad-server — Nomad cluster operations
+
+```bash
+# List available Nomad tools
+mcporter list mcp-nomad-server
+
+# Example calls (discover tools first with list)
+mcporter call mcp-nomad-server.<tool-name> [args]
+```
+
 ### tavily — web search
 
 ```bash
@@ -49,7 +59,7 @@ mcporter list
 mcporter list --http-url https://mcp.context7.com/mcp --name context7
 ```
 
-**Adding servers:** edit `.mcp.json` → `./homelab/ctl.sh build`.
+**Adding servers:** edit `homelab/.mcp.json` → `./homelab/ctl.sh build`.
 Full reference: `HOMELAB_DEPLOYMENT_NOTES.md` → Lesson 9.
 
 ---

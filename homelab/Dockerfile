@@ -140,6 +140,16 @@ RUN OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build
 ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:build
 
+# ── mcporter (MCP CLI client — list and call MCP tools like other CLI tools) ──
+# Installs mcporter globally, then generates /root/.mcporter/mcporter.json from
+# homelab/.mcp.json. jq converts Claude's format ({type,url}) to mcporter's
+# format ({baseUrl}). homelab/.mcp.json is the source of truth; rebuild the
+# image whenever it changes.
+RUN npm install -g mcporter \
+    && mkdir -p /root/.mcporter \
+    && jq '{mcpServers: (.mcpServers | to_entries | map({key, value: {baseUrl: .value.url}}) | from_entries)}' \
+       /app/homelab/.mcp.json > /root/.mcporter/mcporter.json
+
 ENV NODE_ENV=production
 
 # ── Runtime environment defaults ─────────────────────────────────────────────
