@@ -31,23 +31,40 @@ services:
     environment:
       HOME: /home/node
       TERM: xterm-256color
+      # ── Gateway ────────────────────────────────────────────────────────────
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
-      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY:-}
-      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY:-}
-      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE:-}
+      # ── Channel tokens (substituted into openclaw.json at runtime) ─────────
+      OPENCLAW_DISCORD_TOKEN: ${OPENCLAW_DISCORD_TOKEN}
+      OPENCLAW_SLACK_BOT_TOKEN: ${OPENCLAW_SLACK_BOT_TOKEN}
+      OPENCLAW_SLACK_APP_TOKEN: ${OPENCLAW_SLACK_APP_TOKEN}
+      # ── LLM provider API keys ──────────────────────────────────────────────
+      # These are fallbacks — auth-profiles.json takes priority when present.
+      # On a fresh node (no auth-profiles.json), these are the sole credentials.
+      # Note: podman-compose 1.0.3 does not expand ${VAR:-default}; use ${VAR}
+      # and ensure all vars are present in .env (set to empty if not used).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ZAI_API_KEY: ${ZAI_API_KEY}
+      MOONSHOT_API_KEY: ${MOONSHOT_API_KEY}
+      # ── LiteLLM proxy (optional — set when gateway is available) ───────────
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL}
+      LITELLM_API_KEY: ${LITELLM_API_KEY}
+      # ── Claude web provider (advanced — skip unless using claude.ai login) ──
+      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY}
+      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY}
+      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE}
       # ── HashiCorp tools ────────────────────────────────────────────────────
-      NOMAD_ADDR: ${NOMAD_ADDR:-http://nomad.service.consul:4646}
-      NOMAD_TOKEN: ${NOMAD_TOKEN:-}
-      CONSUL_HTTP_ADDR: ${CONSUL_HTTP_ADDR:-http://127.0.0.1:8500}
-      CONSUL_HTTP_TOKEN: ${CONSUL_HTTP_TOKEN:-}
+      NOMAD_ADDR: ${NOMAD_ADDR}
+      NOMAD_TOKEN: ${NOMAD_TOKEN}
+      CONSUL_HTTP_ADDR: ${CONSUL_HTTP_ADDR}
+      CONSUL_HTTP_TOKEN: ${CONSUL_HTTP_TOKEN}
       # ── 1Password CLI ──────────────────────────────────────────────────────
       # Option A: service account (recommended for headless / container use)
-      OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN:-}
+      OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN}
       # Option B: 1Password Connect server
-      OP_CONNECT_HOST: ${OP_CONNECT_HOST:-}
-      OP_CONNECT_TOKEN: ${OP_CONNECT_TOKEN:-}
+      OP_CONNECT_HOST: ${OP_CONNECT_HOST}
+      OP_CONNECT_TOKEN: ${OP_CONNECT_TOKEN}
       # ── Terraform (optional) ───────────────────────────────────────────────
-      TF_TOKEN_app_terraform_io: ${TF_TOKEN_app_terraform_io:-}
+      TF_TOKEN_app_terraform_io: ${TF_TOKEN_app_terraform_io}
     volumes:
       - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
       - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
