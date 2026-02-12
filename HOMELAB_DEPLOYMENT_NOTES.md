@@ -1,6 +1,6 @@
 # OpenClaw Homelab Deployment — Session Notes
 
-**Last updated:** 2026-02-12
+**Last updated:** 2026-02-12 (session 4)
 **Branch:** `feature/podman-homelab-deployment`
 
 ---
@@ -11,17 +11,31 @@
 |-----------|--------|-------|
 | Container image | ✅ Built | `openclaw:local` |
 | Gateway | ✅ Running | Podman, LAN bind, port 18789 |
-| Config persistence | ✅ Working | `/opt/homelab/data/home/.openclaw/` |
+| Config persistence | ✅ Working | `openclaw-agents/jerry/` (git repo) |
 | File ownership | ✅ Fixed | Container root (uid=0) = host `hashi`; files appear as `hashi:hashi`; no `podman unshare` needed |
-| Model providers | ✅ Configured | moonshot primary, anthropic + z.ai fallbacks |
+| Model providers | ✅ Configured | zai/glm-4.7 primary, anthropic + moonshot fallbacks |
 | Slack | ✅ Working | #home-automation, Socket Mode |
 | Discord | ✅ Partial | DMs working; channel allowlist configured but untested |
 | WhatsApp | ⏳ Pending | Needs dedicated phone number |
 | Web UI (HTTPS) | ⚠️ Workaround | SSH tunnel via VS Code; needs proper HTTPS |
+| Agent config in git | ✅ Done | `github.com/shamsway/openclaw-agents` |
+| Secrets in env vars | ✅ Done | Channel tokens + LLM keys in `.env` / docker-compose; `${ENV_VAR}` in openclaw.json |
 | Auto-restart | ❌ Not configured | Gateway won't survive host reboot |
-| Secrets management | ❌ Not configured | Tokens/keys in plaintext `.env` and `openclaw.json` |
+| Secrets in 1Password | ⏳ Pending | `.env` tokens to be replaced with `op run` injection |
 
 ---
+
+## Progress — Session 4 (2026-02-12)
+
+- Migrated agent config from `~/.openclaw/` to `github.com/shamsway/openclaw-agents` git repo
+- Two-repo strategy: `openclaw-agents/jerry/` = config + workspace; secrets gitignored
+- Replaced secrets in `openclaw.json` with `${ENV_VAR}` substitutions (OpenClaw native feature)
+- Added channel tokens (Discord, Slack) and LLM API keys as docker-compose env vars
+- Added LiteLLM placeholder env vars (`LITELLM_BASE_URL`, `LITELLM_API_KEY`) for future setup
+- Updated `.env.example` with full secrets workflow documentation
+- Discovered and documented podman-compose 1.0.3 limitation: must use `${VAR}` not `${VAR:-default}`
+  in docker-compose.yml (workaround: ensure all vars present in `.env`, even if empty)
+- Pushed `openclaw-agents` initial commit: 13 files, secrets-free
 
 ## Progress — Session 1 (2026-02-10)
 
@@ -261,8 +275,9 @@ Allowlist was updated to include the channel ID but not yet verified to be worki
 - [ ] Set up WhatsApp channel (QR scan)
 - [ ] Configure HTTPS via Tailscale Serve
 - [ ] Set up auto-restart on reboot (systemd user service)
-- [ ] Move secrets to 1Password; inject via `op run` at container start
+- [ ] Move `.env` secrets to 1Password; inject via `op run -- ./homelab/ctl.sh up`
 - [ ] Test Control UI from MacBook without SSH tunnel (after HTTPS)
+- [ ] Configure LiteLLM gateway URL and add provider to `openclaw.json`
 
 ### Medium-term (Phase 2/3)
 - [ ] Set up LiteLLM provider endpoint for additional model routing options
@@ -320,10 +335,12 @@ cat /opt/homelab/data/home/.openclaw/openclaw.json
 |------|-------|
 | Deployment files | `/opt/homelab/data/home/git/openclaw/` |
 | Environment config | `/opt/homelab/data/home/git/openclaw/.env` |
-| OpenClaw config | `/opt/homelab/data/home/.openclaw/openclaw.json` |
-| Auth profiles | `/opt/homelab/data/home/.openclaw/agents/main/agent/auth-profiles.json` |
-| Workspace | `/opt/homelab/data/home/.openclaw/workspace/` |
-| Agent sessions | `/opt/homelab/data/home/.openclaw/agents/main/sessions/` |
+| Agent config repo | `/opt/homelab/data/home/git/openclaw-agents/` |
+| OpenClaw config | `/opt/homelab/data/home/git/openclaw-agents/jerry/openclaw.json` |
+| Auth profiles | `/opt/homelab/data/home/git/openclaw-agents/jerry/agents/main/agent/auth-profiles.json` |
+| Workspace | `/opt/homelab/data/home/git/openclaw-agents/jerry/workspace/` |
+| Agent sessions | `/opt/homelab/data/home/git/openclaw-agents/jerry/agents/main/sessions/` |
+| GitHub repo | `https://github.com/shamsway/openclaw-agents` |
 | Gateway token | `bc39640f3817ccdc8974cec6f82f1e7d04a8723346c8bda2` |
 | Gateway port | `18789` |
-| Primary model | `moonshot/kimi-k2.5` |
+| Primary model | `zai/glm-4.7` |
