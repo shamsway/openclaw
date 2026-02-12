@@ -1,6 +1,6 @@
 # OpenClaw Homelab Deployment — Session Notes
 
-**Last updated:** 2026-02-11
+**Last updated:** 2026-02-12
 **Branch:** `feature/podman-homelab-deployment`
 
 ---
@@ -12,6 +12,7 @@
 | Container image | ✅ Built | `openclaw:local` |
 | Gateway | ✅ Running | Podman, LAN bind, port 18789 |
 | Config persistence | ✅ Working | `/opt/homelab/data/home/.openclaw/` |
+| File ownership | ✅ Fixed | Container uid=2000 matches host `hashi`; no `podman unshare` needed |
 | Model providers | ✅ Configured | moonshot primary, anthropic + z.ai fallbacks |
 | Slack | ✅ Working | #home-automation, Socket Mode |
 | Discord | ✅ Partial | DMs working; channel allowlist configured but untested |
@@ -55,20 +56,42 @@
 
 ## Lessons Learned
 
-### 1. Rootless Podman Permissions Require `podman unshare`
+### 1. Rootless Podman — UID/GID Alignment
 
-Host directories owned by UID 2000 are not writable by container UID 1000. Run before first onboarding:
+#### Root cause
 
+Rootless Podman maps the container's non-zero UIDs through the host user's subuid
+range (`/etc/subuid`: `hashi:100000:65536`). The `node` user (uid=1000 in the base
+image) therefore appears as uid=**100999** on the host (100000 + 1000 − 1), making
+bind-mounted `.openclaw/` files unreadable/unmanageable without `podman unshare`.
+
+The previous `userns_mode: "keep-id:uid=1000,gid=1000"` override was intended to
+fix this but was silently ignored by `podman-compose` 1.0.3's implementation of the
+`userns_mode` key.
+
+#### Fix (implemented 2026-02-12)
+
+The `node` user inside the container is now remapped at **build time** to match the
+host user's uid/gid via `ARG PUID`/`ARG PGID` in `homelab/Dockerfile`. The `ctl.sh
+build` command automatically passes `--build-arg PUID=$(id -u) --build-arg
+PGID=$(id -g)`. The Podman compose override now uses plain `userns_mode: keep-id`
+(no uid/gid sub-args), giving a trivial 1:1 mapping (host uid=2000 → container
+uid=2000).
+
+After a rebuild and re-run, files written by the container appear on the host as
+`hashi:hashi` — no `podman unshare` required.
+
+**One-time migration for existing files:**
 ```bash
-OPENCLAW_CONFIG_DIR=/opt/homelab/data/home/.openclaw \
-OPENCLAW_WORKSPACE_DIR=/opt/homelab/data/home/.openclaw/workspace \
-./fix-podman-permissions.sh
+sudo chown -R hashi:hashi /opt/homelab/data/home/.openclaw
 ```
+(Run after `ctl.sh build && ctl.sh up` with the new image.)
 
-Files in `.openclaw` appear as UID 100999 on the host afterward — correct and expected. Read them from the host via:
-```bash
-podman unshare cat /opt/homelab/data/home/.openclaw/openclaw.json
-```
+#### Legacy workaround (superseded)
+
+The old `fix-podman-permissions.sh` script used `podman unshare chown -R 1000:1000`
+to pre-create dirs with the subuid-mapped ownership. This is no longer necessary
+after the rebuild.
 
 ### 2. Gateway Token Can Drift
 
@@ -78,7 +101,7 @@ Token lives in two places; they must match:
 
 After onboarding, verify with:
 ```bash
-podman unshare cat /opt/homelab/data/home/.openclaw/openclaw.json | grep token
+grep token /opt/homelab/data/home/.openclaw/openclaw.json
 grep OPENCLAW_GATEWAY_TOKEN .env
 ```
 
@@ -276,7 +299,11 @@ alias openclaw='node dist/index.js'
 
 ### Read Config from Host
 ```bash
-podman unshare cat /opt/homelab/data/home/.openclaw/openclaw.json
+# After the uid=2000 rebuild, files are owned by hashi — read directly:
+cat /opt/homelab/data/home/.openclaw/openclaw.json
+
+# Legacy (pre-fix, when files were owned by uid=100999):
+# podman unshare cat /opt/homelab/data/home/.openclaw/openclaw.json
 ```
 
 ### Key Paths

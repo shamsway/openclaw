@@ -76,7 +76,12 @@ case "$CMD" in
     echo "Dockerfile : $DOCKERFILE"
     echo "Image tag  : $BUILD_TAG"
     echo "Context    : $REPO_ROOT"
+    echo "UID/GID    : $(id -u):$(id -g)"
+    # Pass host uid/gid so the container's node user is remapped to match,
+    # ensuring bind-mounted volumes appear under the correct host owner.
     podman build \
+      --build-arg "PUID=$(id -u)" \
+      --build-arg "PGID=$(id -g)" \
       -t "$BUILD_TAG" \
       -f "$DOCKERFILE" \
       "$REPO_ROOT" "$@"
