@@ -12,7 +12,7 @@
 | Container image | ✅ Built | `openclaw:local` |
 | Gateway | ✅ Running | Podman, LAN bind, port 18789 |
 | Config persistence | ✅ Working | `/opt/homelab/data/home/.openclaw/` |
-| File ownership | ✅ Fixed | Container uid=2000 matches host `hashi`; no `podman unshare` needed |
+| File ownership | ✅ Fixed | Container root (uid=0) = host `hashi`; files appear as `hashi:hashi`; no `podman unshare` needed |
 | Model providers | ✅ Configured | moonshot primary, anthropic + z.ai fallbacks |
 | Slack | ✅ Working | #home-automation, Socket Mode |
 | Discord | ✅ Partial | DMs working; channel allowlist configured but untested |
@@ -71,12 +71,21 @@ fix this but was silently ignored by `podman-compose` 1.0.3's implementation of 
 
 #### Fix (implemented 2026-02-12)
 
-The `node` user inside the container is now remapped at **build time** to match the
-host user's uid/gid via `ARG PUID`/`ARG PGID` in `homelab/Dockerfile`. The `ctl.sh
-build` command automatically passes `--build-arg PUID=$(id -u) --build-arg
-PGID=$(id -g)`. The Podman compose override now uses plain `userns_mode: keep-id`
-(no uid/gid sub-args), giving a trivial 1:1 mapping (host uid=2000 → container
-uid=2000).
+`podman-compose 1.0.3` silently drops the `userns_mode` key — `--userns=keep-id`
+never reaches the underlying `podman run` command, so UID remapping via that path
+does not work.
+
+The correct solution for rootless Podman is to run the container as **root inside
+the container** (`USER root`, which is the default when no `USER` directive is set).
+In rootless Podman, container `uid=0` maps to the calling host user (`hashi`,
+`uid=2000`), so:
+- Files owned by `hashi` on the host appear as `uid=0` (root) inside the container
+  — readable/writable by the root process ✓
+- New files written by the container appear as `hashi:hashi` on the host ✓
+- No `podman unshare` required ✓
+
+The `USER node` line was removed from `homelab/Dockerfile`; the container now runs
+as root (no elevated host privileges — rootless Podman guarantees this).
 
 After a rebuild and re-run, files written by the container appear on the host as
 `hashi:hashi` — no `podman unshare` required.

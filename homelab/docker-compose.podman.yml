@@ -1,19 +1,17 @@
 # homelab/docker-compose.podman.yml - Podman rootless overrides for homelab
 #
-# Extends homelab/docker-compose.yml with Podman-specific user namespace
-# mappings required for rootless operation (Octant's preferred mode).
+# Extends homelab/docker-compose.yml with Podman-specific settings for
+# rootless operation (Octant's preferred mode).
 #
-# The Dockerfile remaps the node user to PUID/PGID (default 2000) at build
-# time via ctl.sh --build-arg PUID=$(id -u). Plain keep-id then provides a
-# trivial 1:1 mapping (host uid=2000 ↔ container uid=2000), so bind-mounted
-# volumes appear on the host under the correct owner without podman unshare.
+# UID/GID note: the container runs as root (uid=0). In rootless Podman,
+# container uid=0 maps to the calling host user (e.g. hashi, uid=2000),
+# so bind-mounted volumes are owned by the correct host user and no
+# podman unshare is required. podman-compose 1.0.3 silently drops the
+# userns_mode key, so --userns=keep-id is not relied upon here.
 #
 # Usage:
 #   podman compose -f homelab/docker-compose.yml \
 #                  -f homelab/docker-compose.podman.yml up -d
 
 services:
-  openclaw-gateway:
-    # 1:1 UID mapping: host user (uid=2000) ↔ container node user (uid=2000).
-    # Requires image built with matching PUID/PGID args (ctl.sh does this).
-    userns_mode: "keep-id"
+  openclaw-gateway: {}

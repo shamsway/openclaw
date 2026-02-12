@@ -149,19 +149,13 @@ ENV NOMAD_ADDR="http://nomad.service.consul:4646"
 ENV CONSUL_HTTP_ADDR="http://127.0.0.1:8500"
 # OP_SERVICE_ACCOUNT_TOKEN — set at runtime, never here
 
-# ── UID/GID alignment for rootless Podman ────────────────────────────────────
-# Remap the node user to match the host user's uid:gid so bind-mounted volumes
-# (e.g. ~/.openclaw) appear on the host under the correct owner without needing
-# podman unshare. Default: 2000 (hashi on Octant). Pass at build time via:
-#   --build-arg PUID=$(id -u) --build-arg PGID=$(id -g)
-# ctl.sh does this automatically.
-ARG PUID=2000
-ARG PGID=2000
-RUN groupmod -g ${PGID} node \
-    && usermod -u ${PUID} -g ${PGID} node \
-    && chown -R ${PUID}:${PGID} /home/node
-
-# ── Security: run as non-root ─────────────────────────────────────────────────
-USER node
+# ── Rootless Podman user note ─────────────────────────────────────────────────
+# Running as root inside the container is intentional and correct for rootless
+# Podman: container uid=0 maps to the host user (e.g. hashi, uid=2000), so the
+# process has no elevated host privileges. Bind-mounted volumes owned by the
+# host user are readable/writable, and new files appear on the host under the
+# correct owner — without needing `podman unshare` or `--userns=keep-id`.
+# (podman-compose 1.0.3 silently drops userns_mode; running as root sidesteps
+# the issue entirely.)
 
 CMD ["node", "dist/index.js"]
