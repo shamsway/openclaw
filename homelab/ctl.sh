@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# homelab/ctl.sh - Convenience wrapper for homelab podman compose commands
+# homelab/ctl.sh - Convenience wrapper for homelab podman-compose commands
 #
 # Works from any directory; always runs with the repo root as the project
 # directory so .env is found and build contexts resolve correctly.
@@ -8,9 +8,9 @@
 #   ./homelab/ctl.sh <command> [args...]
 #
 # Commands:
-#   up       Start the gateway in the background (podman compose up -d)
+#   up       Start the gateway in the background (podman-compose up -d)
 #   down     Stop and remove containers
-#   logs     Follow gateway logs (podman compose logs -f)
+#   logs     Follow gateway logs (podman-compose logs -f)
 #   build    Build the homelab image (openclaw-homelab:local)
 #   push     Tag and push the image to OPENCLAW_REGISTRY (--tls-verify=false)
 #   pull     Pull the image from OPENCLAW_REGISTRY and tag it locally
@@ -24,7 +24,7 @@
 # OPENCLAW_REGISTRY defaults to registry.service.consul:8082 (insecure HTTP).
 # Set it in .env or export it before running this script.
 #
-# Extra args are forwarded to the underlying podman compose command, e.g.:
+# Extra args are forwarded to the underlying podman-compose command, e.g.:
 #   ./homelab/ctl.sh logs openclaw-gateway
 #   ./homelab/ctl.sh up --force-recreate
 
@@ -33,7 +33,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Always run from repo root so podman compose picks up .env and build
+# Always run from repo root so podman-compose picks up .env and build
 # contexts (context: ..) resolve correctly.
 cd "$REPO_ROOT"
 
@@ -62,19 +62,24 @@ shift || true
 
 case "$CMD" in
   up)
-    podman compose "${COMPOSE_FILES[@]}" up -d "$@"
+    podman-compose "${COMPOSE_FILES[@]}" up -d "$@"
     ;;
   down)
-    podman compose "${COMPOSE_FILES[@]}" down "$@"
+    podman-compose "${COMPOSE_FILES[@]}" down "$@"
     ;;
   logs)
-    podman compose "${COMPOSE_FILES[@]}" logs -f "$@"
+    podman-compose "${COMPOSE_FILES[@]}" logs -f "$@"
     ;;
   build)
+    DOCKERFILE="$REPO_ROOT/homelab/Dockerfile"
+    BUILD_TAG="${OPENCLAW_IMAGE:-openclaw-homelab:local}"
+    echo "Dockerfile : $DOCKERFILE"
+    echo "Image tag  : $BUILD_TAG"
+    echo "Context    : $REPO_ROOT"
     podman build \
-      -t "${OPENCLAW_IMAGE:-openclaw-homelab:local}" \
-      -f homelab/Dockerfile \
-      . "$@"
+      -t "$BUILD_TAG" \
+      -f "$DOCKERFILE" \
+      "$REPO_ROOT" "$@"
     ;;
   push)
     LOCAL="${OPENCLAW_IMAGE:-openclaw-homelab:local}"
@@ -93,10 +98,10 @@ case "$CMD" in
     podman tag "$REMOTE" "$LOCAL"
     ;;
   restart)
-    podman compose "${COMPOSE_FILES[@]}" restart "$@"
+    podman-compose "${COMPOSE_FILES[@]}" restart "$@"
     ;;
   ps|status)
-    podman compose "${COMPOSE_FILES[@]}" ps
+    podman-compose "${COMPOSE_FILES[@]}" ps
     ;;
   help|--help|-h)
     sed -n '2,/^set /p' "$0" | grep '^#' | sed 's/^# \{0,1\}//'

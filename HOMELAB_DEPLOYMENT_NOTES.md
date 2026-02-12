@@ -32,6 +32,14 @@
 - Gateway started and health check passing
 - Gateway token reconciled between `.env` and `openclaw.json`
 
+## Progress — Session 3 (2026-02-11)
+
+- Fixed `ctl.sh` to use `podman-compose` binary (Podman 4.3.1 has no built-in `compose` subcommand)
+- Added `push` and `pull` commands to `ctl.sh` for local registry (`registry.service.consul:8082`, HTTP, `--tls-verify=false`)
+- Updated `docker-compose.yml` and `.env.example` to default to registry image
+- Hardened `ctl.sh build` to use absolute paths for Dockerfile and build context; prints Dockerfile/tag/context before build
+- Researched and documented MCP server configuration (HTTP/SSE) — see Lesson 9 below
+
 ## Progress — Session 2 (2026-02-10/11)
 
 - Fixed invalid Anthropic API key — re-configured via `openclaw auth login`
@@ -108,8 +116,81 @@ Direct access via `http://<tailscale-ip>:18789` triggers `disconnected (1008): c
 
 For a multi-command session, exec into the running gateway container:
 ```bash
-podman exec -it openclaw_openclaw-gateway_1 bash
+podman exec -it homelab_openclaw-gateway_1 bash
 alias openclaw='node dist/index.js'
+```
+
+### 9. MCP Server Configuration (HTTP/SSE)
+
+MCP servers are wired in via two files — both live inside `OPENCLAW_CONFIG_DIR` so they persist across container restarts.
+
+**Step 1 — `~/.openclaw/mcp-servers.json`** (Claude's MCP server list):
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "type": "http",
+      "url": "http://my-server.service.consul:8080/mcp"
+    },
+    "legacy-sse-server": {
+      "type": "sse",
+      "url": "http://other-server.service.consul:9090/sse"
+    },
+    "authed-server": {
+      "type": "http",
+      "url": "http://internal.service.consul:8080/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+**Step 2 — `~/.openclaw/openclaw.json`** (tell OpenClaw to pass `--mcp-config` to the Claude CLI):
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "cliBackends": {
+        "claude-cli": {
+          "args": [
+            "-p",
+            "--output-format", "json",
+            "--dangerously-skip-permissions",
+            "--mcp-config", "/home/node/.openclaw/mcp-servers.json",
+            "--strict-mcp-config"
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+Note: `/home/node/.openclaw/` is the in-container path. The `args` array replaces (not appends) the default args, so all required flags must be listed. Drop `--strict-mcp-config` to also load Claude's user-level MCP servers.
+
+**Restart after any changes:**
+```bash
+./homelab/ctl.sh restart
+```
+
+**Validation commands:**
+```bash
+# List MCP servers known to Claude inside the container
+podman exec homelab_openclaw-gateway_1 claude mcp list
+
+# Inspect a specific server (shows url, type, tools)
+podman exec homelab_openclaw-gateway_1 claude mcp get <server-name>
+
+# Check for connection errors at startup
+./homelab/ctl.sh logs | grep -i mcp
+
+# End-to-end test — ask Jerry to introspect her tools
+openclaw agent --message "what mcp tools do you have available? list them all"
+
+# Verbose MCP debug: temporarily add --debug to openclaw.json args, then:
+./homelab/ctl.sh logs
 ```
 
 ---
@@ -171,25 +252,25 @@ Allowlist was updated to include the channel ID but not yet verified to be worki
 ```bash
 cd /opt/homelab/data/home/git/openclaw
 
-# Start
-podman-compose -f docker-compose.yml -f docker-compose.podman.yml up -d openclaw-gateway
+./homelab/ctl.sh up       # start in background
+./homelab/ctl.sh down     # stop and remove containers
+./homelab/ctl.sh restart  # restart (after config changes)
+./homelab/ctl.sh logs     # follow logs
+./homelab/ctl.sh ps       # container status
 
-# Stop
-podman-compose -f docker-compose.yml -f docker-compose.podman.yml down
+# Build and push to local registry (build node)
+./homelab/ctl.sh build && ./homelab/ctl.sh push
 
-# Restart (after config changes)
-podman restart openclaw_openclaw-gateway_1
-
-# Logs
-podman logs -f openclaw_openclaw-gateway_1
+# Pull from registry and start (remote nodes)
+./homelab/ctl.sh pull && ./homelab/ctl.sh up
 
 # Health check
-podman exec openclaw_openclaw-gateway_1 node dist/index.js gateway health
+podman exec homelab_openclaw-gateway_1 node dist/index.js gateway health
 ```
 
 ### Interactive CLI Session
 ```bash
-podman exec -it openclaw_openclaw-gateway_1 bash
+podman exec -it homelab_openclaw-gateway_1 bash
 alias openclaw='node dist/index.js'
 ```
 
