@@ -2,6 +2,58 @@
 
 Notes on available MCP servers, their quirks, and anything else worth remembering.
 
+## How MCP Servers Are Configured
+
+MCP servers are wired in through two files inside `OPENCLAW_CONFIG_DIR` (`/home/node/.openclaw/` in-container, `/opt/homelab/data/home/.openclaw/` on the host):
+
+**`~/.openclaw/mcp-servers.json`** — the server list (Claude's format):
+```json
+{
+  "mcpServers": {
+    "server-name": {
+      "type": "http",
+      "url": "http://server.service.consul:8080/mcp"
+    },
+    "sse-server": {
+      "type": "sse",
+      "url": "http://server.service.consul:9090/sse"
+    }
+  }
+}
+```
+
+**`~/.openclaw/openclaw.json`** — passes the config to the Claude CLI backend:
+```json
+{
+  "agents": {
+    "defaults": {
+      "cliBackends": {
+        "claude-cli": {
+          "args": [
+            "-p",
+            "--output-format", "json",
+            "--dangerously-skip-permissions",
+            "--mcp-config", "/home/node/.openclaw/mcp-servers.json",
+            "--strict-mcp-config"
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+After editing either file: `./homelab/ctl.sh restart`
+
+**Validation:**
+```bash
+podman exec homelab_openclaw-gateway_1 claude mcp list
+podman exec homelab_openclaw-gateway_1 claude mcp get <server-name>
+./homelab/ctl.sh logs | grep -i mcp
+```
+
+Full reference: `HOMELAB_DEPLOYMENT_NOTES.md` → Lesson 9.
+
 ## MCP Servers
 
 ### nomad
