@@ -1,60 +1,60 @@
 # TOOLS.md - Tools & Notes
 
-Notes on available MCP servers, their quirks, and anything else worth remembering.
+Notes on available tools, their usage patterns, and anything worth remembering.
 
-## How MCP Servers Are Configured
+---
 
-MCP servers are wired in through two files inside `OPENCLAW_CONFIG_DIR` (`/home/node/.openclaw/` in-container, `/opt/homelab/data/home/.openclaw/` on the host):
+## MCP Tools (mcporter)
 
-**`~/.openclaw/mcp-servers.json`** — the server list (Claude's format):
-```json
-{
-  "mcpServers": {
-    "server-name": {
-      "type": "http",
-      "url": "http://server.service.consul:8080/mcp"
-    },
-    "sse-server": {
-      "type": "sse",
-      "url": "http://server.service.consul:9090/sse"
-    }
-  }
-}
-```
+MCP servers are accessed via **mcporter**, installed in the image alongside other
+CLI tools (nomad, consul, op, gcloud). No agent config changes are required.
 
-**`~/.openclaw/openclaw.json`** — passes the config to the Claude CLI backend:
-```json
-{
-  "agents": {
-    "defaults": {
-      "cliBackends": {
-        "claude-cli": {
-          "args": [
-            "-p",
-            "--output-format", "json",
-            "--dangerously-skip-permissions",
-            "--mcp-config", "/home/node/.openclaw/mcp-servers.json",
-            "--strict-mcp-config"
-          ]
-        }
-      }
-    }
-  }
-}
-```
+**Config:** `.mcp.json` in the repo root is the source of truth. At image build
+time it is transformed to `/root/.mcporter/mcporter.json` automatically.
 
-After editing either file: `./homelab/ctl.sh restart`
+### Discover tools
 
-**Validation:**
 ```bash
-podman exec homelab_openclaw-gateway_1 claude mcp list
-podman exec homelab_openclaw-gateway_1 claude mcp get <server-name>
-./homelab/ctl.sh logs | grep -i mcp
+mcporter list              # all configured servers + tool counts
+mcporter list context7     # tools exposed by context7
+mcporter list tavily       # tools exposed by tavily
 ```
 
+### context7 — library and framework docs
+
+```bash
+# Step 1: resolve a library name to a Context7 library ID
+mcporter call context7.resolve-library-id libraryName:"react"
+mcporter call context7.resolve-library-id libraryName:"kubernetes"
+
+# Step 2: fetch docs for that ID (use the /org/project ID from step 1)
+mcporter call context7.get-library-docs libraryId:"/facebook/react" topic:"hooks"
+mcporter call context7.get-library-docs libraryId:"/kubernetes/kubernetes" topic:"pods"
+```
+
+### tavily — web search
+
+```bash
+mcporter call tavily.search query:"your search query"
+mcporter call tavily.search query:"nomad job scheduling" maxResults:5
+```
+
+### Troubleshooting
+
+```bash
+# Verify config loaded correctly
+mcporter list
+
+# Ad-hoc call without relying on saved config
+mcporter list --http-url https://mcp.context7.com/mcp --name context7
+```
+
+**Adding servers:** edit `.mcp.json` → `./homelab/ctl.sh build`.
 Full reference: `HOMELAB_DEPLOYMENT_NOTES.md` → Lesson 9.
 
-## MCP Servers
+---
+
+## CLI Tools
 
 ### nomad
 
@@ -85,11 +85,15 @@ Infrastructure-level operations.
 Agent-to-agent router. Dispatches tasks to specialized agents once they're online.
 - **Notes:** *(routing logic, which agents are registered)*
 
+---
+
 ## SSH / Access
 
 *(add node access details here as needed — hostnames, jump hosts, key locations)*
 
 - **Jerry:** *(hostname or Tailscale IP)*
+
+---
 
 ## Cluster Layout
 
@@ -98,6 +102,8 @@ Agent-to-agent router. Dispatches tasks to specialized agents once they're onlin
 - **Nomad datacenter:**
 - **Consul datacenter:**
 - **Key services registered in Consul:**
+
+---
 
 ## Lessons Learned
 

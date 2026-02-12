@@ -1,6 +1,6 @@
 # OpenClaw Homelab Deployment — Session Notes
 
-**Last updated:** 2026-02-12 (session 4)
+**Last updated:** 2026-02-12 (session 5)
 **Branch:** `feature/podman-homelab-deployment`
 
 ---
@@ -20,10 +20,21 @@
 | Web UI (HTTPS) | ⚠️ Workaround | SSH tunnel via VS Code; needs proper HTTPS |
 | Agent config in git | ✅ Done | `github.com/shamsway/openclaw-agents` |
 | Secrets in env vars | ✅ Done | Channel tokens + LLM keys in `.env` / docker-compose; `${ENV_VAR}` in openclaw.json |
+| MCP tools (mcporter) | ⏳ Pending | Dockerfile update needed; context7 + tavily defined in `.mcp.json` |
 | Auto-restart | ❌ Not configured | Gateway won't survive host reboot |
 | Secrets in 1Password | ⏳ Pending | `.env` tokens to be replaced with `op run` injection |
 
 ---
+
+## Progress — Session 5 (2026-02-12)
+
+- Adopted **mcporter** as the MCP tooling approach: CLI tool installed in the image,
+  same pattern as nomad/consul/op — no `openclaw.json` or `cliBackends` changes needed
+- `.mcp.json` (repo root) established as single source of truth for MCP server config;
+  a `jq` transform at build time converts it to mcporter's format
+- Archived old `--mcp-config` approach to `homelab/mcp-legacy.md`
+- Updated Lesson 9 and `homelab/jerry/TOOLS.md` with mcporter workflow
+- Dockerfile implementation pending (next session)
 
 ## Progress — Session 4 (2026-02-12)
 
@@ -166,78 +177,38 @@ podman exec -it homelab_openclaw-gateway_1 bash
 alias openclaw='node dist/index.js'
 ```
 
-### 9. MCP Server Configuration (HTTP/SSE)
+### 9. MCP Tools via mcporter
 
-MCP servers are wired in via two files — both live inside `OPENCLAW_CONFIG_DIR` so they persist across container restarts.
+MCP tools are accessed via **mcporter** — a CLI installed in the image alongside
+other tools (nomad, consul, op). No `openclaw.json` or `cliBackends` changes needed.
 
-**Step 1 — `~/.openclaw/mcp-servers.json`** (Claude's MCP server list):
+**Config source of truth:** `.mcp.json` in the repo root (Claude's native format).
+At image build time a `jq` one-liner transforms it to `/root/.mcporter/mcporter.json`
+(mcporter uses `baseUrl` instead of `url`). Rebuild whenever `.mcp.json` changes.
 
-```json
-{
-  "mcpServers": {
-    "my-server": {
-      "type": "http",
-      "url": "http://my-server.service.consul:8080/mcp"
-    },
-    "legacy-sse-server": {
-      "type": "sse",
-      "url": "http://other-server.service.consul:9090/sse"
-    },
-    "authed-server": {
-      "type": "http",
-      "url": "http://internal.service.consul:8080/mcp",
-      "headers": { "Authorization": "Bearer <token>" }
-    }
-  }
-}
-```
+**Servers configured in `.mcp.json`:**
+- `context7` — library and framework documentation lookup
+- `tavily` — web search (API key in URL query param for now)
 
-**Step 2 — `~/.openclaw/openclaw.json`** (tell OpenClaw to pass `--mcp-config` to the Claude CLI):
-
-```json
-{
-  "agents": {
-    "defaults": {
-      "cliBackends": {
-        "claude-cli": {
-          "args": [
-            "-p",
-            "--output-format", "json",
-            "--dangerously-skip-permissions",
-            "--mcp-config", "/home/node/.openclaw/mcp-servers.json",
-            "--strict-mcp-config"
-          ]
-        }
-      }
-    }
-  }
-}
-```
-
-Note: `/home/node/.openclaw/` is the in-container path. The `args` array replaces (not appends) the default args, so all required flags must be listed. Drop `--strict-mcp-config` to also load Claude's user-level MCP servers.
-
-**Restart after any changes:**
+**Usage:**
 ```bash
-./homelab/ctl.sh restart
+# List all tools for a server
+mcporter list context7
+mcporter list tavily
+
+# Call a tool
+mcporter call context7.resolve-library-id libraryName:"react"
+mcporter call context7.get-library-docs libraryId:"/facebook/react" topic:"hooks"
+mcporter call tavily.search query:"kubernetes pod scheduling"
 ```
 
-**Validation commands:**
-```bash
-# List MCP servers known to Claude inside the container
-podman exec homelab_openclaw-gateway_1 claude mcp list
+**Adding a new MCP server:**
+1. Add entry to `.mcp.json`
+2. Rebuild: `./homelab/ctl.sh build && ./homelab/ctl.sh push`
+3. Each node: `./homelab/ctl.sh pull && ./homelab/ctl.sh restart`
 
-# Inspect a specific server (shows url, type, tools)
-podman exec homelab_openclaw-gateway_1 claude mcp get <server-name>
-
-# Check for connection errors at startup
-./homelab/ctl.sh logs | grep -i mcp
-
-# End-to-end test — ask Jerry to introspect her tools
-openclaw agent --message "what mcp tools do you have available? list them all"
-
-# Verbose MCP debug: temporarily add --debug to openclaw.json args, then:
-./homelab/ctl.sh logs
-```
+**Legacy approach (superseded):** `homelab/mcp-legacy.md` — the `--mcp-config` +
+`mcp-servers.json` method used in sessions 1–4.
 
 ---
 
@@ -278,6 +249,7 @@ Allowlist was updated to include the channel ID but not yet verified to be worki
 - [ ] Move `.env` secrets to 1Password; inject via `op run -- ./homelab/ctl.sh up`
 - [ ] Test Control UI from MacBook without SSH tunnel (after HTTPS)
 - [ ] Configure LiteLLM gateway URL and add provider to `openclaw.json`
+- [ ] Implement mcporter in Dockerfile: `npm install -g mcporter` + `jq` transform of `.mcp.json` → `/root/.mcporter/mcporter.json`
 
 ### Medium-term (Phase 2/3)
 - [ ] Set up LiteLLM provider endpoint for additional model routing options
