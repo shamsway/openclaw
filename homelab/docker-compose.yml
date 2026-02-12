@@ -74,6 +74,9 @@ services:
       # this mount is only needed if Jerry uses the tailscale CLI directly.
       # Prefer the Tailscale MCP server (see homelab/jerry/TOOLS.md) instead.
       # - /var/run/tailscale:/var/run/tailscale:ro
+    dns:
+      - 192.168.252.7
+      - 192.168.252.8
     ports:
       - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
       - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
