@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseArgs, toModelDefinition } from "./litellm-models.js";
+import { buildConfig, parseArgs, toModelDefinition } from "./litellm-models.js";
 import type { LiteLLMModel } from "./litellm-models.js";
 
 describe("parseArgs", () => {
@@ -94,5 +94,116 @@ describe("toModelDefinition", () => {
       contextWindow: 128000,
       maxTokens: 8192,
     });
+  });
+});
+
+describe("buildConfig", () => {
+  const models: LiteLLMModel[] = [
+    { id: "openai/gpt-4o", object: "model", created: 1, owned_by: "openai" },
+    { id: "anthropic/claude-sonnet-4", object: "model", created: 2, owned_by: "anthropic" },
+    { id: "google/gemini-2.5-pro", object: "model", created: 3, owned_by: "google" },
+  ];
+
+  it("builds partial openclaw config with primary and fallbacks", () => {
+    const result = buildConfig({
+      models,
+      args: {
+        url: "http://localhost:4000",
+        apiKey: "sk-test",
+        primary: "openai/gpt-4o",
+        fallbacks: ["anthropic/claude-sonnet-4"],
+        providerName: "litellm",
+        api: "openai-completions",
+      },
+    });
+
+    expect(result.models.mode).toBe("merge");
+    expect(result.models.providers.litellm.baseUrl).toBe("http://localhost:4000/v1");
+    expect(result.models.providers.litellm.apiKey).toBe("sk-test");
+    expect(result.models.providers.litellm.api).toBe("openai-completions");
+    expect(result.models.providers.litellm.models).toHaveLength(3);
+    expect(result.agents.defaults.model.primary).toBe("litellm/openai/gpt-4o");
+    expect(result.agents.defaults.model.fallbacks).toEqual(["litellm/anthropic/claude-sonnet-4"]);
+  });
+
+  it("omits apiKey from config when undefined", () => {
+    const result = buildConfig({
+      models,
+      args: {
+        url: "http://localhost:4000",
+        apiKey: undefined,
+        primary: "openai/gpt-4o",
+        fallbacks: [],
+        providerName: "litellm",
+        api: "openai-completions",
+      },
+    });
+
+    expect(result.models.providers.litellm.apiKey).toBeUndefined();
+  });
+
+  it("strips trailing slash from url before appending /v1", () => {
+    const result = buildConfig({
+      models,
+      args: {
+        url: "http://localhost:4000/",
+        apiKey: undefined,
+        primary: "openai/gpt-4o",
+        fallbacks: [],
+        providerName: "litellm",
+        api: "openai-completions",
+      },
+    });
+
+    expect(result.models.providers.litellm.baseUrl).toBe("http://localhost:4000/v1");
+  });
+
+  it("does not double-append /v1 if url already ends with it", () => {
+    const result = buildConfig({
+      models,
+      args: {
+        url: "http://localhost:4000/v1",
+        apiKey: undefined,
+        primary: "openai/gpt-4o",
+        fallbacks: [],
+        providerName: "litellm",
+        api: "openai-completions",
+      },
+    });
+
+    expect(result.models.providers.litellm.baseUrl).toBe("http://localhost:4000/v1");
+  });
+
+  it("uses custom provider name", () => {
+    const result = buildConfig({
+      models,
+      args: {
+        url: "http://localhost:4000",
+        apiKey: undefined,
+        primary: "openai/gpt-4o",
+        fallbacks: [],
+        providerName: "my-proxy",
+        api: "openai-completions",
+      },
+    });
+
+    expect(result.models.providers["my-proxy"]).toBeDefined();
+    expect(result.agents.defaults.model.primary).toBe("my-proxy/openai/gpt-4o");
+  });
+
+  it("omits fallbacks key when list is empty", () => {
+    const result = buildConfig({
+      models,
+      args: {
+        url: "http://localhost:4000",
+        apiKey: undefined,
+        primary: "openai/gpt-4o",
+        fallbacks: [],
+        providerName: "litellm",
+        api: "openai-completions",
+      },
+    });
+
+    expect(result.agents.defaults.model.fallbacks).toBeUndefined();
   });
 });
