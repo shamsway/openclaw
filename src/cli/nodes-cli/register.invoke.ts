@@ -1,14 +1,9 @@
-import path from "node:path";
 import type { Command } from "commander";
-import { randomIdempotencyKey } from "../../gateway/call.js";
-import { defaultRuntime } from "../../runtime.js";
-import { parseEnvPairs, parseTimeoutMs } from "../nodes-run.js";
-import { getNodesTheme, runNodesCommand } from "./cli-utils.js";
-import { parseNodeList } from "./format.js";
-import { callGatewayCli, nodesCallOpts, resolveNodeId, unauthorizedHintForMessage } from "./rpc.js";
+import path from "node:path";
 import type { NodesRpcOpts } from "./types.js";
-import { loadConfig } from "../../config/config.js";
 import { resolveAgentConfig, resolveDefaultAgentId } from "../../agents/agent-scope.js";
+import { loadConfig } from "../../config/config.js";
+import { randomIdempotencyKey } from "../../gateway/call.js";
 import {
   type ExecApprovalsFile,
   type ExecAsk,
@@ -18,6 +13,11 @@ import {
   resolveExecApprovalsFromFile,
 } from "../../infra/exec-approvals.js";
 import { buildNodeShellCommand } from "../../infra/node-shell.js";
+import { defaultRuntime } from "../../runtime.js";
+import { parseEnvPairs, parseTimeoutMs } from "../nodes-run.js";
+import { getNodesTheme, runNodesCommand } from "./cli-utils.js";
+import { parseNodeList } from "./format.js";
+import { callGatewayCli, nodesCallOpts, resolveNodeId, unauthorizedHintForMessage } from "./rpc.js";
 
 type NodesRunOpts = NodesRpcOpts & {
   node?: string;
@@ -269,8 +269,11 @@ export function registerNodesInvokeCommands(nodes: Command) {
           }
 
           const requiresAsk = hostAsk === "always" || hostAsk === "on-miss";
+          let approvalId: string | null = null;
           if (requiresAsk) {
+            approvalId = crypto.randomUUID();
             const decisionResult = (await callGatewayCli("exec.approval.request", opts, {
+              id: approvalId,
               command: rawCommand ?? argv.join(" "),
               cwd: opts.cwd,
               host: "node",
@@ -329,6 +332,9 @@ export function registerNodesInvokeCommands(nodes: Command) {
           (invokeParams.params as Record<string, unknown>).approved = approvedByAsk;
           if (approvalDecision) {
             (invokeParams.params as Record<string, unknown>).approvalDecision = approvalDecision;
+          }
+          if (approvedByAsk && approvalId) {
+            (invokeParams.params as Record<string, unknown>).runId = approvalId;
           }
           if (invokeTimeout !== undefined) {
             invokeParams.timeoutMs = invokeTimeout;
