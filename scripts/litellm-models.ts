@@ -1,4 +1,11 @@
-import type { ModelApi } from "../src/config/types.models.js";
+import type { ModelApi, ModelDefinitionConfig } from "../src/config/types.models.js";
+
+export type LiteLLMModel = {
+  id: string;
+  object: string;
+  created: number;
+  owned_by: string;
+};
 
 export type ScriptArgs = {
   url: string;
@@ -51,4 +58,16 @@ export function parseArgs(argv: string[]): ScriptArgs {
   }
 
   return { url, apiKey, primary, fallbacks, providerName, api };
+}
+
+export function toModelDefinition(model: LiteLLMModel): ModelDefinitionConfig {
+  return {
+    id: model.id,
+    name: model.id,
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128000,
+    maxTokens: 8192,
+  };
 }

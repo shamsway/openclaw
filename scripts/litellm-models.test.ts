@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseArgs } from "./litellm-models.js";
+import { parseArgs, toModelDefinition } from "./litellm-models.js";
+import type { LiteLLMModel } from "./litellm-models.js";
 
 describe("parseArgs", () => {
   it("parses required and optional flags", () => {
@@ -72,5 +73,26 @@ describe("parseArgs", () => {
 
   it("throws when --primary is missing", () => {
     expect(() => parseArgs(["--url", "http://localhost:4000"])).toThrow("--primary");
+  });
+});
+
+describe("toModelDefinition", () => {
+  it("maps a LiteLLM model entry to ModelDefinitionConfig", () => {
+    const input: LiteLLMModel = {
+      id: "openai/gpt-4o",
+      object: "model",
+      created: 1700000000,
+      owned_by: "openai",
+    };
+    const result = toModelDefinition(input);
+    expect(result).toEqual({
+      id: "openai/gpt-4o",
+      name: "openai/gpt-4o",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128000,
+      maxTokens: 8192,
+    });
   });
 });
