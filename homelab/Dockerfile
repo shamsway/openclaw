@@ -135,7 +135,7 @@ COPY scripts ./scripts
 RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN OPENCLAW_A2UI_SKIP_MISSING=1 pnpm build
+RUN pnpm build
 # Force pnpm for UI build (Bun may fail on ARM/Synology architectures)
 ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:build
@@ -168,4 +168,6 @@ ENV CONSUL_HTTP_ADDR="http://127.0.0.1:8500"
 # (podman-compose 1.0.3 silently drops userns_mode; running as root sidesteps
 # the issue entirely.)
 
-CMD ["node", "dist/index.js"]
+# Default CMD starts gateway with --allow-unconfigured (matches upstream).
+# docker-compose.yml overrides this with full bind/port configuration.
+CMD ["node", "openclaw.mjs", "gateway", "--allow-unconfigured"]
