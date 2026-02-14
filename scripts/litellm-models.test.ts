@@ -44,8 +44,11 @@ describe("parseArgs", () => {
       const result = parseArgs(["--url", "http://localhost:4000", "--primary", "m"]);
       expect(result.apiKey).toBe("sk-env");
     } finally {
-      if (prev === undefined) delete process.env.LITELLM_API_KEY;
-      else process.env.LITELLM_API_KEY = prev;
+      if (prev === undefined) {
+        delete process.env.LITELLM_API_KEY;
+      } else {
+        process.env.LITELLM_API_KEY = prev;
+      }
     }
   });
 
@@ -56,8 +59,11 @@ describe("parseArgs", () => {
       const result = parseArgs(["--primary", "m"]);
       expect(result.url).toBe("http://env-host:4000");
     } finally {
-      if (prev === undefined) delete process.env.LITELLM_URL;
-      else process.env.LITELLM_URL = prev;
+      if (prev === undefined) {
+        delete process.env.LITELLM_URL;
+      } else {
+        process.env.LITELLM_URL = prev;
+      }
     }
   });
 
@@ -67,7 +73,9 @@ describe("parseArgs", () => {
     try {
       expect(() => parseArgs(["--primary", "m"])).toThrow("--url");
     } finally {
-      if (prev !== undefined) process.env.LITELLM_URL = prev;
+      if (prev !== undefined) {
+        process.env.LITELLM_URL = prev;
+      }
     }
   });
 
