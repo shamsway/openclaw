@@ -166,3 +166,92 @@ export function buildConfig(params: {
     },
   };
 }
+
+type LiteLLMModelsResponse = {
+  data: LiteLLMModel[];
+  object: string;
+};
+
+async function fetchModels(url: string, apiKey: string | undefined): Promise<LiteLLMModel[]> {
+  const endpoint = `${url.replace(/\/+$/, "")}/v1/models`;
+  const headers: Record<string, string> = {};
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  const res = await fetch(endpoint, { headers });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch models from ${endpoint}: ${res.status} ${res.statusText}`);
+  }
+
+  const body = (await res.json()) as LiteLLMModelsResponse;
+  return body.data;
+}
+
+function printUsage(): void {
+  console.error(`Usage: bun scripts/litellm-models.ts --url <litellm-url> --primary <model-id> [options]
+
+Required:
+  --url <url>              LiteLLM base URL (or set LITELLM_URL env var)
+  --primary <model-id>     Model ID to use as primary
+
+Optional:
+  --api-key <key>          API key (or set LITELLM_API_KEY env var)
+  --fallbacks <m1,m2,...>  Comma-separated fallback model IDs
+  --provider-name <name>   Provider key in config (default: litellm)
+  --api <api-type>         API type (default: openai-completions)`);
+}
+
+async function main() {
+  let args: ScriptArgs;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (err) {
+    printUsage();
+    console.error(`\nError: ${(err as Error).message}`);
+    process.exit(1);
+  }
+
+  let models: LiteLLMModel[];
+  try {
+    models = await fetchModels(args.url, args.apiKey);
+  } catch (err) {
+    console.error(`Error: ${(err as Error).message}`);
+    process.exit(1);
+  }
+
+  if (models.length === 0) {
+    console.error("No models returned from the LiteLLM endpoint.");
+    process.exit(1);
+  }
+
+  const availableIds = models.map((m) => m.id);
+  const validation = validateModels({
+    availableIds,
+    primary: args.primary,
+    fallbacks: args.fallbacks,
+  });
+
+  for (const warning of validation.warnings) {
+    console.error(`Warning: ${warning}`);
+  }
+
+  if (!validation.valid) {
+    console.error(`Error: ${validation.error}`);
+    process.exit(1);
+  }
+
+  // Use validated fallbacks (invalid ones filtered out)
+  args.fallbacks = validation.validFallbacks;
+
+  const config = buildConfig({ models, args });
+  console.log(JSON.stringify(config, null, 2));
+}
+
+// Only run main if this script is executed directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
