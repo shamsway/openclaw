@@ -92,6 +92,43 @@ type PartialOpenClawConfig = {
   };
 };
 
+type ValidationResult = {
+  valid: boolean;
+  error?: string;
+  validFallbacks: string[];
+  warnings: string[];
+};
+
+export function validateModels(params: {
+  availableIds: string[];
+  primary: string;
+  fallbacks: string[];
+}): ValidationResult {
+  const { availableIds, primary, fallbacks } = params;
+  const idSet = new Set(availableIds);
+
+  if (!idSet.has(primary)) {
+    return {
+      valid: false,
+      error: `Primary model "${primary}" not found. Available models:\n${availableIds.map((id) => `  - ${id}`).join("\n")}`,
+      validFallbacks: [],
+      warnings: [],
+    };
+  }
+
+  const warnings: string[] = [];
+  const validFallbacks: string[] = [];
+  for (const fb of fallbacks) {
+    if (idSet.has(fb)) {
+      validFallbacks.push(fb);
+    } else {
+      warnings.push(`Fallback model "${fb}" not found in available models, skipping.`);
+    }
+  }
+
+  return { valid: true, validFallbacks, warnings };
+}
+
 export function buildConfig(params: {
   models: LiteLLMModel[];
   args: ScriptArgs;

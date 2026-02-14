@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildConfig, parseArgs, toModelDefinition } from "./litellm-models.js";
+import { buildConfig, parseArgs, toModelDefinition, validateModels } from "./litellm-models.js";
 import type { LiteLLMModel } from "./litellm-models.js";
 
 describe("parseArgs", () => {
@@ -205,5 +205,43 @@ describe("buildConfig", () => {
     });
 
     expect(result.agents.defaults.model.fallbacks).toBeUndefined();
+  });
+});
+
+describe("validateModels", () => {
+  const modelIds = ["openai/gpt-4o", "anthropic/claude-sonnet-4", "google/gemini-2.5-pro"];
+
+  it("returns valid result when primary and all fallbacks exist", () => {
+    const result = validateModels({
+      availableIds: modelIds,
+      primary: "openai/gpt-4o",
+      fallbacks: ["anthropic/claude-sonnet-4"],
+    });
+    expect(result.valid).toBe(true);
+    expect(result.validFallbacks).toEqual(["anthropic/claude-sonnet-4"]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("returns invalid when primary is not in list", () => {
+    const result = validateModels({
+      availableIds: modelIds,
+      primary: "openai/gpt-5",
+      fallbacks: [],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("gpt-5");
+    expect(result.error).toContain("openai/gpt-4o");
+  });
+
+  it("warns and filters when a fallback is not in list", () => {
+    const result = validateModels({
+      availableIds: modelIds,
+      primary: "openai/gpt-4o",
+      fallbacks: ["anthropic/claude-sonnet-4", "missing/model"],
+    });
+    expect(result.valid).toBe(true);
+    expect(result.validFallbacks).toEqual(["anthropic/claude-sonnet-4"]);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("missing/model");
   });
 });
