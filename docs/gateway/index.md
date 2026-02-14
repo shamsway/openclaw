@@ -54,6 +54,20 @@ pnpm gateway:watch
 - Clients then connect to `ws://127.0.0.1:18789` through the tunnel.
 - If a token is configured, clients must include it in `connect.params.auth.token` even over the tunnel.
 
+## Agent credentials & secrets management
+
+For production deployments where agents need access to external services (GitHub, model provider APIs, deployment credentials), see:
+
+- **[Agent Permissions Setup Runbook](/plans/2026-02-14-agent-permissions-setup-runbook)** — Step-by-step guide for configuring 1Password vault + GitHub fine-grained PAT for gateway agents
+- **[Agent Permissions Design](/plans/2026-02-14-agent-permissions-design)** — Architecture and security posture
+
+The runbook covers:
+- Creating a dedicated 1Password vault with service account (read-only)
+- Configuring GitHub fine-grained PAT with repo-scoped access
+- Startup-time secret injection via wrapper script
+- Systemd integration and verification steps
+- Rotation procedures and security audit checklist
+
 ## Multiple gateways (same host)
 
 Usually unnecessary: one Gateway can serve multiple messaging channels and agents. Use multiple Gateways only for redundancy or strict isolation (ex: rescue bot).
