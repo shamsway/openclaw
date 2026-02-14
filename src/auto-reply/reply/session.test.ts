@@ -1,9 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-
 import { describe, expect, it, vi } from "vitest";
-
 import type { OpenClawConfig } from "../../config/config.js";
 import { saveSessionStore } from "../../config/sessions.js";
 import { initSessionState } from "./session.js";
@@ -196,6 +194,47 @@ describe("initSessionState RawBody", () => {
     });
 
     expect(result.triggerBodyNormalized).toBe("/status");
+  });
+
+  it("uses the default per-agent sessions store when config store is unset", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-session-store-default-"));
+    const stateDir = path.join(root, ".openclaw");
+    const agentId = "worker1";
+    const sessionKey = `agent:${agentId}:telegram:12345`;
+    const sessionId = "sess-worker-1";
+    const sessionFile = path.join(stateDir, "agents", agentId, "sessions", `${sessionId}.jsonl`);
+    const storePath = path.join(stateDir, "agents", agentId, "sessions", "sessions.json");
+
+    vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+    try {
+      await fs.mkdir(path.dirname(storePath), { recursive: true });
+      await saveSessionStore(storePath, {
+        [sessionKey]: {
+          sessionId,
+          sessionFile,
+          updatedAt: Date.now(),
+        },
+      });
+
+      const cfg = {} as OpenClawConfig;
+      const result = await initSessionState({
+        ctx: {
+          Body: "hello",
+          ChatType: "direct",
+          Provider: "telegram",
+          Surface: "telegram",
+          SessionKey: sessionKey,
+        },
+        cfg,
+        commandAuthorized: true,
+      });
+
+      expect(result.sessionEntry.sessionId).toBe(sessionId);
+      expect(result.sessionEntry.sessionFile).toBe(sessionFile);
+      expect(result.storePath).toBe(storePath);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -456,7 +495,7 @@ describe("initSessionState channel reset overrides", () => {
       session: {
         store: storePath,
         idleMinutes: 60,
-        resetByType: { dm: { mode: "idle", idleMinutes: 10 } },
+        resetByType: { direct: { mode: "idle", idleMinutes: 10 } },
         resetByChannel: { discord: { mode: "idle", idleMinutes: 10080 } },
       },
     } as OpenClawConfig;

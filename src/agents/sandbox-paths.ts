@@ -1,8 +1,11 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
+const HTTP_URL_RE = /^https?:\/\//i;
+const DATA_URL_RE = /^data:/i;
 
 function normalizeUnicodeSpaces(str: string): string {
   return str.replace(UNICODE_SPACES, " ");
@@ -45,14 +48,49 @@ export function resolveSandboxPath(params: { filePath: string; cwd: string; root
 
 export async function assertSandboxPath(params: { filePath: string; cwd: string; root: string }) {
   const resolved = resolveSandboxPath(params);
-  await assertNoSymlink(resolved.relative, path.resolve(params.root));
+  await assertNoSymlinkEscape(resolved.relative, path.resolve(params.root));
   return resolved;
 }
 
-async function assertNoSymlink(relative: string, root: string) {
+export function assertMediaNotDataUrl(media: string): void {
+  const raw = media.trim();
+  if (DATA_URL_RE.test(raw)) {
+    throw new Error("data: URLs are not supported for media. Use buffer instead.");
+  }
+}
+
+export async function resolveSandboxedMediaSource(params: {
+  media: string;
+  sandboxRoot: string;
+}): Promise<string> {
+  const raw = params.media.trim();
+  if (!raw) {
+    return raw;
+  }
+  if (HTTP_URL_RE.test(raw)) {
+    return raw;
+  }
+  let candidate = raw;
+  if (/^file:\/\//i.test(candidate)) {
+    try {
+      candidate = fileURLToPath(candidate);
+    } catch {
+      throw new Error(`Invalid file:// URL for sandboxed media: ${raw}`);
+    }
+  }
+  const resolved = await assertSandboxPath({
+    filePath: candidate,
+    cwd: params.sandboxRoot,
+    root: params.sandboxRoot,
+  });
+  return resolved.resolved;
+}
+
+async function assertNoSymlinkEscape(relative: string, root: string) {
   if (!relative) {
     return;
   }
+  const rootReal = await tryRealpath(root);
   const parts = relative.split(path.sep).filter(Boolean);
   let current = root;
   for (const part of parts) {
@@ -60,7 +98,13 @@ async function assertNoSymlink(relative: string, root: string) {
     try {
       const stat = await fs.lstat(current);
       if (stat.isSymbolicLink()) {
-        throw new Error(`Symlink not allowed in sandbox path: ${current}`);
+        const target = await tryRealpath(current);
+        if (!isPathInside(rootReal, target)) {
+          throw new Error(
+            `Symlink escapes sandbox root (${shortPath(rootReal)}): ${shortPath(current)}`,
+          );
+        }
+        current = target;
       }
     } catch (err) {
       const anyErr = err as { code?: string };
@@ -70,6 +114,22 @@ async function assertNoSymlink(relative: string, root: string) {
       throw err;
     }
   }
+}
+
+async function tryRealpath(value: string): Promise<string> {
+  try {
+    return await fs.realpath(value);
+  } catch {
+    return path.resolve(value);
+  }
+}
+
+function isPathInside(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  if (!relative || relative === "") {
+    return true;
+  }
+  return !(relative.startsWith("..") || path.isAbsolute(relative));
 }
 
 function shortPath(value: string) {

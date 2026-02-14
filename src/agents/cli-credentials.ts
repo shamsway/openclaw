@@ -1,10 +1,8 @@
-import { execSync } from "node:child_process";
+import type { OAuthCredentials, OAuthProvider } from "@mariozechner/pi-ai";
+import { execFileSync, execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-
-import type { OAuthCredentials, OAuthProvider } from "@mariozechner/pi-ai";
-
 import { loadJsonFile, saveJsonFile } from "../infra/json-file.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveUserPath } from "../utils.js";
@@ -88,6 +86,7 @@ type ClaudeCliWriteOptions = ClaudeCliFileOptions & {
 };
 
 type ExecSyncFn = typeof execSync;
+type ExecFileSyncFn = typeof execFileSync;
 
 function resolveClaudeCliCredentialsPath(homeDir?: string) {
   const baseDir = homeDir ?? resolveUserPath("~");
@@ -383,12 +382,13 @@ export function readClaudeCliCredentialsCached(options?: {
 
 export function writeClaudeCliKeychainCredentials(
   newCredentials: OAuthCredentials,
-  options?: { execSync?: ExecSyncFn },
+  options?: { execFileSync?: ExecFileSyncFn },
 ): boolean {
-  const execSyncImpl = options?.execSync ?? execSync;
+  const execFileSyncImpl = options?.execFileSync ?? execFileSync;
   try {
-    const existingResult = execSyncImpl(
-      `security find-generic-password -s "${CLAUDE_CLI_KEYCHAIN_SERVICE}" -w 2>/dev/null`,
+    const existingResult = execFileSyncImpl(
+      "security",
+      ["find-generic-password", "-s", CLAUDE_CLI_KEYCHAIN_SERVICE, "-w"],
       { encoding: "utf8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"] },
     );
 
@@ -407,8 +407,20 @@ export function writeClaudeCliKeychainCredentials(
 
     const newValue = JSON.stringify(existingData);
 
-    execSyncImpl(
-      `security add-generic-password -U -s "${CLAUDE_CLI_KEYCHAIN_SERVICE}" -a "${CLAUDE_CLI_KEYCHAIN_ACCOUNT}" -w '${newValue.replace(/'/g, "'\"'\"'")}'`,
+    // Use execFileSync to avoid shell interpretation of user-controlled token values.
+    // This prevents command injection via $() or backtick expansion in OAuth tokens.
+    execFileSyncImpl(
+      "security",
+      [
+        "add-generic-password",
+        "-U",
+        "-s",
+        CLAUDE_CLI_KEYCHAIN_SERVICE,
+        "-a",
+        CLAUDE_CLI_KEYCHAIN_ACCOUNT,
+        "-w",
+        newValue,
+      ],
       { encoding: "utf8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"] },
     );
 

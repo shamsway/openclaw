@@ -2,6 +2,7 @@
 summary: "Loopback WebChat static host and Gateway WS usage for chat UI"
 read_when:
   - Debugging or configuring WebChat access
+title: "WebChat"
 ---
 
 # WebChat (Gateway WebSocket UI)
@@ -43,6 +44,7 @@ Channel options:
 Related global options:
 
 - `gateway.port`, `gateway.bind`: WebSocket host/port.
-- `gateway.auth.mode`, `gateway.auth.token`, `gateway.auth.password`: WebSocket auth.
+- `gateway.auth.mode`, `gateway.auth.token`, `gateway.auth.password`: WebSocket auth (token/password).
+- `gateway.auth.mode: "trusted-proxy"`: reverse-proxy auth for browser clients (see [Trusted Proxy Auth](/gateway/trusted-proxy-auth)).
 - `gateway.remote.url`, `gateway.remote.token`, `gateway.remote.password`: remote gateway target.
 - `session.*`: session storage and main key defaults.

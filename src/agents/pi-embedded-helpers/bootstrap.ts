@@ -1,8 +1,6 @@
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import fs from "node:fs/promises";
 import path from "node:path";
-
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-
 import type { OpenClawConfig } from "../../config/config.js";
 import type { WorkspaceBootstrapFile } from "../workspace.js";
 import type { EmbeddedContextFile } from "./types.js";
@@ -170,7 +168,7 @@ export function buildBootstrapContextFiles(
   for (const file of files) {
     if (file.missing) {
       result.push({
-        path: file.name,
+        path: file.path,
         content: `[MISSING] Expected at: ${file.path}`,
       });
       continue;
@@ -185,7 +183,7 @@ export function buildBootstrapContextFiles(
       );
     }
     result.push({
-      path: file.name,
+      path: file.path,
       content: trimmed.content,
     });
   }
