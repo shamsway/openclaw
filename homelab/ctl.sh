@@ -16,6 +16,7 @@
 #   pull     Pull the image from OPENCLAW_REGISTRY and tag it locally
 #   restart  Restart the gateway container
 #   ps       Show container status
+#   cli      Launch an interactive container with the openclaw alias configured
 #
 # Registry workflow (multi-node lab):
 #   Build node:   ./homelab/ctl.sh build && ./homelab/ctl.sh push
@@ -108,13 +109,49 @@ case "$CMD" in
   ps|status)
     podman-compose "${COMPOSE_FILES[@]}" ps
     ;;
+  cli)
+    IMAGE="${OPENCLAW_IMAGE:-openclaw-homelab:${OPENCLAW_VERSION}}"
+    # Ensure config/workspace dirs exist on the host before bind-mounting them.
+    CLI_CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-$HOME/.openclaw}"
+    CLI_WORKSPACE_DIR="${OPENCLAW_WORKSPACE_DIR:-$HOME/.openclaw/workspace}"
+    mkdir -p "$CLI_CONFIG_DIR" "$CLI_WORKSPACE_DIR"
+    # Write a temp rcfile that registers the openclaw alias and a clear prompt.
+    # Mounted read-only into the container so bash --rcfile can source it.
+    CLI_RC="$(mktemp)"
+    # shellcheck disable=SC2064
+    trap "rm -f '${CLI_RC}'" EXIT INT TERM
+    cat > "$CLI_RC" <<'RCEOF'
+alias openclaw="node /app/openclaw.mjs"
+echo "OpenClaw CLI  — run 'openclaw --help' to get started."
+PS1="\[\033[0;36m\][openclaw]\[\033[0m\] \u@\h:\w\$ "
+RCEOF
+    ENV_FILE_ARGS=()
+    if [[ -f "$REPO_ROOT/.env" ]]; then
+      ENV_FILE_ARGS=(--env-file "$REPO_ROOT/.env")
+    fi
+    echo "Image : $IMAGE"
+    echo "Config: $CLI_CONFIG_DIR"
+    podman run --rm -it \
+      --init \
+      --network host \
+      --workdir /app \
+      -e HOME=/home/node \
+      -e TERM="${TERM:-xterm-256color}" \
+      "${ENV_FILE_ARGS[@]}" \
+      -v "${CLI_CONFIG_DIR}:/home/node/.openclaw" \
+      -v "${CLI_WORKSPACE_DIR}:/home/node/.openclaw/workspace" \
+      -v "${CLI_RC}:/etc/openclaw.bashrc:ro" \
+      "$IMAGE" \
+      bash --rcfile /etc/openclaw.bashrc \
+      "$@"
+    ;;
   help|--help|-h)
     sed -n '2,/^set /p' "$0" | grep '^#' | sed 's/^# \{0,1\}//'
     exit 0
     ;;
   *)
     echo "error: unknown command '${CMD}'" >&2
-    echo "Usage: $0 {up|down|logs|build|push|pull|restart|ps}" >&2
+    echo "Usage: $0 {up|down|logs|build|push|pull|restart|ps|cli}" >&2
     exit 1
     ;;
 esac
