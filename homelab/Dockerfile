@@ -10,7 +10,7 @@
 # containers.  Use the HashiCorp APT repo and direct binary downloads instead.
 #
 # Build:
-#   podman build -t openclaw-homelab:local -f homelab/Dockerfile .
+#   ./homelab/ctl.sh build   # uses OPENCLAW_IMAGE from .env
 #
 # Key runtime env vars (pass via .env or docker-compose environment):
 #   NOMAD_ADDR              http://nomad.service.consul:4646

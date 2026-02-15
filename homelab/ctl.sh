@@ -11,7 +11,7 @@
 #   up       Start the gateway in the background (podman-compose up -d)
 #   down     Stop and remove containers
 #   logs     Follow gateway logs (podman-compose logs -f)
-#   build    Build the homelab image (openclaw-homelab:local)
+#   build    Build the homelab image (tag from OPENCLAW_IMAGE / OPENCLAW_VERSION)
 #   push     Tag and push the image to OPENCLAW_REGISTRY (--tls-verify=false)
 #   pull     Pull the image from OPENCLAW_REGISTRY and tag it locally
 #   restart  Restart the gateway container
@@ -48,6 +48,11 @@ fi
 
 REGISTRY="${OPENCLAW_REGISTRY:-registry.service.consul:8082}"
 
+# Resolve OPENCLAW_VERSION: prefer .env value, fall back to package.json, then "local".
+if [[ -z "${OPENCLAW_VERSION:-}" ]]; then
+  OPENCLAW_VERSION="$(node -p "require('./package.json').version" 2>/dev/null || echo "local")"
+fi
+
 # _registry_image LOCAL_IMAGE
 # Returns the fully-qualified registry image name.
 # Strips any existing registry prefix so the result is always REGISTRY/name:tag.
@@ -72,7 +77,7 @@ case "$CMD" in
     ;;
   build)
     DOCKERFILE="$REPO_ROOT/homelab/Dockerfile"
-    BUILD_TAG="${OPENCLAW_IMAGE:-openclaw-homelab:local}"
+    BUILD_TAG="${OPENCLAW_IMAGE:-openclaw-homelab:${OPENCLAW_VERSION}}"
     echo "Dockerfile : $DOCKERFILE"
     echo "Image tag  : $BUILD_TAG"
     echo "Context    : $REPO_ROOT"
@@ -82,7 +87,7 @@ case "$CMD" in
       "$REPO_ROOT" "$@"
     ;;
   push)
-    LOCAL="${OPENCLAW_IMAGE:-openclaw-homelab:local}"
+    LOCAL="${OPENCLAW_IMAGE:-openclaw-homelab:${OPENCLAW_VERSION}}"
     REMOTE="$(_registry_image "$LOCAL")"
     echo "Tagging ${LOCAL} → ${REMOTE}"
     podman tag "$LOCAL" "$REMOTE"
@@ -90,7 +95,7 @@ case "$CMD" in
     podman push --tls-verify=false "$REMOTE" "$@"
     ;;
   pull)
-    LOCAL="${OPENCLAW_IMAGE:-openclaw:local}"
+    LOCAL="${OPENCLAW_IMAGE:-openclaw-homelab:${OPENCLAW_VERSION}}"
     REMOTE="$(_registry_image "$LOCAL")"
     echo "Pulling ${REMOTE} (--tls-verify=false)"
     podman pull --tls-verify=false "$REMOTE" "$@"
