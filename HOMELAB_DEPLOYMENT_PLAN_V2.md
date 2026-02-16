@@ -107,6 +107,46 @@ This deployment plan implements a **phased approach** to building an enterprise-
 - Option 2 multi-gateway work remains **design + experiment only** until readiness gates are met.
 - Do not run Bobby/Billy standalone gateways with channel integrations during this phase.
 
+### Remote Tool Nodes Experiment (Bobby/Billy, still single-gateway)
+
+Use headless node hosts on Bobby/Billy to execute tools remotely while keeping all
+agents on Jerry's single gateway.
+
+- Compose file: `homelab/docker-compose.remote-nodes.yml`
+- Runtime model: `openclaw node run` in rootless Podman containers (hashi user)
+- Gateway stays only on Jerry; Bobby/Billy are node peripherals (not gateways)
+
+**Run on Bobby host:**
+
+```bash
+podman compose -f homelab/docker-compose.remote-nodes.yml --profile bobby up -d
+```
+
+**Run on Billy host:**
+
+```bash
+podman compose -f homelab/docker-compose.remote-nodes.yml --profile billy up -d
+```
+
+**Required env vars (in `.env` on each node host):**
+
+- `OPENCLAW_IMAGE`
+- `OPENCLAW_GATEWAY_TOKEN` (must match Jerry gateway auth token)
+- `OPENCLAW_REMOTE_GATEWAY_HOST`
+- `OPENCLAW_REMOTE_GATEWAY_PORT`
+- `OPENCLAW_BOBBY_NODE_CONFIG_DIR` / `OPENCLAW_BOBBY_NODE_WORKSPACE_DIR` (Bobby)
+- `OPENCLAW_BILLY_NODE_CONFIG_DIR` / `OPENCLAW_BILLY_NODE_WORKSPACE_DIR` (Billy)
+
+**Validation from Jerry:**
+
+```bash
+openclaw nodes status
+openclaw devices list
+openclaw devices approve <requestId>   # first-time pair
+openclaw approvals allowlist add --node "Bobby Remote Node" "/usr/bin/uname"
+openclaw approvals allowlist add --node "Billy Remote Node" "/usr/bin/uname"
+```
+
 ---
 
 ## Deployment Phases

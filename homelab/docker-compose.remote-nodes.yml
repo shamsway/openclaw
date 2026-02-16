@@ -1,0 +1,90 @@
+# homelab/docker-compose.remote-nodes.yml - Remote tool node hosts (Bobby/Billy)
+#
+# Runs headless OpenClaw node hosts that connect back to Jerry's gateway and
+# expose system.run/system.which for remote tool execution experiments.
+#
+# This file is intentionally separate from homelab/docker-compose.yml so you can
+# keep single-gateway mode on Jerry while independently running node hosts on
+# Bobby/Billy.
+#
+# Usage (run from repo root):
+#   # Bobby host
+#   podman compose -f homelab/docker-compose.remote-nodes.yml --profile bobby up -d
+#
+#   # Billy host
+#   podman compose -f homelab/docker-compose.remote-nodes.yml --profile billy up -d
+#
+# Notes:
+# - OPENCLAW_GATEWAY_TOKEN must match gateway.auth.token on Jerry.
+# - OPENCLAW_REMOTE_GATEWAY_HOST should be Jerry's reachable LAN/Tailscale host.
+# - OPENCLAW_*_NODE_CONFIG_DIR and OPENCLAW_*_NODE_WORKSPACE_DIR should be
+#   host paths owned by hashi (rootless podman user).
+
+services:
+  openclaw-node-bobby:
+    profiles: ["bobby"]
+    image: ${OPENCLAW_IMAGE}
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      NOMAD_ADDR: ${NOMAD_ADDR}
+      NOMAD_TOKEN: ${NOMAD_TOKEN}
+      CONSUL_HTTP_ADDR: ${CONSUL_HTTP_ADDR}
+      CONSUL_HTTP_TOKEN: ${CONSUL_HTTP_TOKEN}
+      OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN}
+      OP_CONNECT_HOST: ${OP_CONNECT_HOST}
+      OP_CONNECT_TOKEN: ${OP_CONNECT_TOKEN}
+      TF_TOKEN_app_terraform_io: ${TF_TOKEN_app_terraform_io}
+    volumes:
+      - ${OPENCLAW_BOBBY_NODE_CONFIG_DIR}:/home/node/.openclaw
+      - ${OPENCLAW_BOBBY_NODE_WORKSPACE_DIR}:/home/node/.openclaw/workspace
+    init: true
+    restart: unless-stopped
+    command:
+      [
+        "node",
+        "openclaw.mjs",
+        "node",
+        "run",
+        "--host",
+        "${OPENCLAW_REMOTE_GATEWAY_HOST}",
+        "--port",
+        "${OPENCLAW_REMOTE_GATEWAY_PORT}",
+        "--display-name",
+        "${OPENCLAW_BOBBY_NODE_DISPLAY_NAME}",
+      ]
+
+  openclaw-node-billy:
+    profiles: ["billy"]
+    image: ${OPENCLAW_IMAGE}
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      NOMAD_ADDR: ${NOMAD_ADDR}
+      NOMAD_TOKEN: ${NOMAD_TOKEN}
+      CONSUL_HTTP_ADDR: ${CONSUL_HTTP_ADDR}
+      CONSUL_HTTP_TOKEN: ${CONSUL_HTTP_TOKEN}
+      OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN}
+      OP_CONNECT_HOST: ${OP_CONNECT_HOST}
+      OP_CONNECT_TOKEN: ${OP_CONNECT_TOKEN}
+      TF_TOKEN_app_terraform_io: ${TF_TOKEN_app_terraform_io}
+    volumes:
+      - ${OPENCLAW_BILLY_NODE_CONFIG_DIR}:/home/node/.openclaw
+      - ${OPENCLAW_BILLY_NODE_WORKSPACE_DIR}:/home/node/.openclaw/workspace
+    init: true
+    restart: unless-stopped
+    command:
+      [
+        "node",
+        "openclaw.mjs",
+        "node",
+        "run",
+        "--host",
+        "${OPENCLAW_REMOTE_GATEWAY_HOST}",
+        "--port",
+        "${OPENCLAW_REMOTE_GATEWAY_PORT}",
+        "--display-name",
+        "${OPENCLAW_BILLY_NODE_DISPLAY_NAME}",
+      ]
