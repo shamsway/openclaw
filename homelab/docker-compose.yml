@@ -68,6 +68,8 @@ services:
     volumes:
       - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
       - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
+      - ${OPENCLAW_BOBBY_WORKSPACE_DIR}:/home/node/.openclaw/workspace-bobby
+      - ${OPENCLAW_BILLY_WORKSPACE_DIR}:/home/node/.openclaw/workspace-billy
       # Tailscale socket — uncomment to allow the tailscale CLI to query the
       # host daemon from inside the container (status, ip, etc.).
       # The container inherits host network connectivity automatically;

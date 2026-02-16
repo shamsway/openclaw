@@ -28,7 +28,7 @@ This deployment plan implements a **phased approach** to building an enterprise-
 - ✅ Proven OpenClaw patterns (Phase 1-3 foundation)
 - ✅ Strategic path to distributed architecture (Option 2 design)
 - ✅ Network engineer mindset: eliminate single points of failure
-- ✅ Multi-channel support (Slack, Discord, WhatsApp)
+- ✅ Multi-channel support path (Slack, Discord active; WhatsApp planned)
 - ✅ LiteLLM observability + ZAI GLM cost-effectiveness
 
 ---
@@ -46,17 +46,17 @@ This deployment plan implements a **phased approach** to building an enterprise-
 │  │  OpenClaw Gateway (Nomad job, count=1)         │ │
 │  │                                                 │ │
 │  │  Agents (logical, in-process):                 │ │
-│  │    ├─ Jerry (Slack/Discord/WhatsApp hub)      │ │
-│  │    │   Model: claude-sonnet-4-5 (cloud)        │ │
-│  │    │   Channels: Slack, Discord, WhatsApp      │ │
+│  │    ├─ Jerry (Slack/Discord hub)               │ │
+│  │    │   Model: zai/glm-4.7 (GLM default stack) │ │
+│  │    │   Channels: Slack, Discord (WhatsApp paused) │ │
 │  │    │                                            │ │
 │  │    ├─ Bobby (autonomous monitoring)            │ │
-│  │    │   Model: claude-sonnet-4-5 (cloud)        │ │
+│  │    │   Model: zai/glm-4.7 (GLM default stack)  │ │
 │  │    │   Heartbeat: Consul/Nomad health checks   │ │
 │  │    │                                            │ │
 │  │    └─ Billy (scheduled tasks, automation)      │ │
-│  │        Model: claude-sonnet-4-5 (cloud)        │ │
-│  │        Note: Uses cloud for reliability        │ │
+│  │        Model: zai/glm-4.7 (GLM default stack)  │ │
+│  │        Note: Single-gateway until Option 2 gates pass │ │
 │  │                                                 │ │
 │  │  Built-in A2A: sessions_* tools work natively  │ │
 │  │  Storage: Nomad host volumes (Jerry node)      │ │
@@ -84,7 +84,7 @@ This deployment plan implements a **phased approach** to building an enterprise-
 └─────────────────────────────────────────────────────┘
 ```
 
-### Future Experimentation Path (Option 2 - Distributed)
+### Future Experimentation Path (Option 2 - Distributed, NOT active)
 
 **Infrastructure readiness for Option 2:**
 
@@ -99,6 +99,13 @@ This deployment plan implements a **phased approach** to building an enterprise-
 - For demos requiring true multi-node distribution
 - As research project for OpenClaw community
 - When you want to contribute back distributed patterns
+
+### Operating Mode Lock (Current State)
+
+- **Active mode:** single gateway on Jerry only.
+- Bobby/Billy run as **in-process agents** inside Jerry's gateway.
+- Option 2 multi-gateway work remains **design + experiment only** until readiness gates are met.
+- Do not run Bobby/Billy standalone gateways with channel integrations during this phase.
 
 ---
 
@@ -115,7 +122,7 @@ This deployment plan implements a **phased approach** to building an enterprise-
 1. ✅ Already done: Podman compose testing (from v1.0 plan)
 2. Deploy gateway to Nomad (Jerry node, pinned)
 3. Configure 3 agents (Jerry, Bobby, Billy)
-4. Set up channel routing (Slack → Jerry, Discord → Jerry with optional Bobby DM binding for alerts)
+4. Set up channel routing (Slack private channels + Discord DMs per agent; Jerry remains in `#home-automation`)
 5. Test built-in A2A (Jerry → Bobby via `sessions_send`)
 
 **Deliverables:**
@@ -138,7 +145,7 @@ This deployment plan implements a **phased approach** to building an enterprise-
 
 ### Phase 2: Channel Configuration & Testing (Week 2)
 
-**Goal:** Configure Slack, Discord, WhatsApp and test multi-agent routing
+**Goal:** Configure Slack + Discord and test multi-agent routing (WhatsApp intentionally paused)
 
 **Status:** READY AFTER PHASE 1
 
@@ -146,23 +153,23 @@ This deployment plan implements a **phased approach** to building an enterprise-
 
 1. Configure Slack bot (app token, bot token)
 2. Configure Discord bot (application, bot token)
-3. Configure WhatsApp (Baileys session, QR pairing)
-4. Set up channel bindings (route channels to agents)
+3. Create Slack private channels: `#jerry`, `#bobby`, `#billy` (keep Jerry in `#home-automation`)
+4. Set up channel bindings (route Slack channels and Discord DMs to agents)
 5. Test message routing and A2A communication
 6. Prepare for job-specific agents (workspace structure)
 
 **Deliverables:**
 
-- [ ] Slack bot responding (routed to Jerry)
-- [ ] Discord bot responding (routed to Jerry or Bobby)
-- [ ] WhatsApp responding (routed to Jerry)
+- [ ] Slack bot responding with per-agent channel routing
+- [ ] Discord DMs routed correctly per agent
+- [ ] WhatsApp status documented as paused for now
 - [ ] Channel bindings tested and working
 - [ ] A2A communication verified (Jerry → Bobby)
 - [ ] Workspace structure for future agents documented
 
 **Success Criteria:**
 
-- ✅ All 3 channels (Slack, Discord, WhatsApp) working
+- ✅ Slack + Discord working with intended per-agent routing
 - ✅ Jerry responds to general queries across channels
 - ✅ Bobby responds to infrastructure queries
 - ✅ Billy executes scheduled tasks via cron
@@ -222,42 +229,56 @@ openclaw --profile macbook gateway --port 18789
 # Or use OpenClaw.app (menubar, GUI)
 ```
 
-**Note:** LM Studio is used ONLY for MacBook agent, NOT for homelab agents
+**Note:** LM Studio is used ONLY for MacBook agent, NOT for homelab agents in current testing mode
 
 **Homelab Gateway Config:**
 
 ```json5
 // ~/.openclaw/openclaw.json (on homelab gateway)
 {
-  // Use environment/auth profiles for Anthropic.
-  // Optional custom providers belong under models.providers.
+  // GLM-first testing baseline across homelab agents.
   models: {
     mode: "merge",
-    // Note: No MacBook LM Studio provider - homelab uses cloud for reliability
-    providers: {},
+    providers: {
+      zai: {
+        baseUrl: "https://api.z.ai/api/paas/v4",
+        apiKey: "${ZAI_API_KEY}",
+        api: "openai-completions",
+        models: [
+          { id: "glm-4.7", name: "GLM-4.7", contextWindow: 128000, maxTokens: 8192 },
+          { id: "glm-5", name: "GLM-5", contextWindow: 128000, maxTokens: 8192 },
+        ],
+      },
+    },
   },
 
   agents: {
+    defaults: {
+      model: {
+        primary: "zai/glm-4.7",
+        fallbacks: ["zai/glm-5", "moonshot/kimi-k2-0905-preview"],
+      },
+    },
     list: [
       {
         id: "jerry",
         name: "Jerry (General Hub)",
         workspace: "~/.openclaw/workspace-jerry",
-        model: "anthropic/claude-sonnet-4-5", // Cloud
-        description: "General-purpose assistant for Slack/Discord/WhatsApp",
+        model: "zai/glm-4.7",
+        description: "General-purpose assistant for Slack/Discord",
       },
       {
         id: "bobby",
         name: "Bobby (Infrastructure Monitoring)",
         workspace: "~/.openclaw/workspace-bobby",
-        model: "anthropic/claude-sonnet-4-5", // Cloud
+        model: "zai/glm-4.7",
         description: "Autonomous infrastructure monitoring and health checks",
       },
       {
         id: "billy",
         name: "Billy (Automation)",
         workspace: "~/.openclaw/workspace-billy",
-        model: "anthropic/claude-sonnet-4-5", // Cloud (reliable)
+        model: "zai/glm-4.7",
         description: "Scheduled tasks and automation",
       },
       // Future: Add job-specific agents here
@@ -265,20 +286,24 @@ openclaw --profile macbook gateway --port 18789
       //   id: "deploy-agent",
       //   name: "Deployment Specialist",
       //   workspace: "~/.openclaw/workspace-deploy",
-      //   model: "anthropic/claude-sonnet-4-5",
+      //   model: "zai/glm-4.7",
       //   description: "Handles Nomad deployments and rollbacks",
       // },
     ],
   },
 
   bindings: [
-    // Jerry handles Slack, Discord, WhatsApp
-    { agentId: "jerry", match: { channel: "slack" } },
-    { agentId: "jerry", match: { channel: "discord" } },
-    { agentId: "jerry", match: { channel: "whatsapp" } },
+    // Slack private channels per agent
+    { agentId: "jerry", match: { channel: "slack", teamId: "T255F0YHW", peer: { kind: "channel", id: "C0AF7JDDBB8" } } }, // #jerry
+    { agentId: "bobby", match: { channel: "slack", teamId: "T255F0YHW", peer: { kind: "channel", id: "C0AF9LAUWPL" } } }, // #bobby
+    { agentId: "billy", match: { channel: "slack", teamId: "T255F0YHW", peer: { kind: "channel", id: "C0AEU73AYNB" } } }, // #billy
+    // Keep Jerry in #home-automation for now
+    { agentId: "jerry", match: { channel: "slack", teamId: "T255F0YHW", peer: { kind: "channel", id: "G01A46T1546" } } }, // #home-automation (private)
 
-    // Bobby handles specific Discord DM or channel (for alerts)
-    // { agentId: "bobby", match: { channel: "discord", peer: { kind: "dm", id: "your-dm-id" } } },
+    // Discord direct chats:
+    // peer.id is the SENDER USER ID (not the bot/application id).
+    // With one Discord user account, DMs route to one agent; use Discord channels for per-agent split.
+    { agentId: "jerry", match: { channel: "discord", peer: { kind: "direct", id: "DISCORD_USER_ID" } } },
 
     // Cron jobs target an agent via job.agentId, not via bindings.
   ],
@@ -351,7 +376,7 @@ openclaw --profile macbook gateway --port 18789
       gateway: "jerry-gateway"
       workspace: "~/.openclaw/workspace-billy"
       capabilities: ["cron", "automation", "scheduled-tasks"]
-      model_provider: "anthropic-cloud"
+      model_provider: "zai-glm"
 
   shared-state/
     recent-events: [
@@ -853,7 +878,7 @@ EOT
         name: "Jerry (General Hub)",
         description: "General-purpose assistant for Slack/Discord queries",
         workspace: "~/.openclaw/workspace-jerry",
-        model: "anthropic/claude-sonnet-4-5",
+        model: "zai/glm-4.7",
         sandbox: {
           mode: "off", // Jerry has full access
         },
@@ -863,7 +888,7 @@ EOT
         name: "Bobby (Infrastructure)",
         description: "Autonomous infrastructure monitoring and health checks",
         workspace: "~/.openclaw/workspace-bobby",
-        model: "anthropic/claude-sonnet-4-5",
+        model: "zai/glm-4.7",
         sandbox: {
           mode: "non-main",
         },
@@ -877,11 +902,11 @@ EOT
       {
         id: "billy",
         name: "Billy (Automation)",
-        description: "Scheduled tasks and automation (cloud-backed for reliability)",
+        description: "Scheduled tasks and automation (GLM-first test profile)",
         workspace: "~/.openclaw/workspace-billy",
         model: {
-          primary: "anthropic/claude-sonnet-4-5",
-          fallbacks: ["anthropic/claude-haiku-4-6"],
+          primary: "zai/glm-4.7",
+          fallbacks: ["zai/glm-5", "moonshot/kimi-k2-0905-preview"],
         },
         sandbox: {
           mode: "all",
@@ -893,20 +918,50 @@ EOT
 
   // Channel routing to agents
   bindings: [
-    // Jerry handles Slack
+    // Slack private channels per agent
     {
       agentId: "jerry",
       match: {
         channel: "slack",
+        teamId: "T255F0YHW",
+        peer: { kind: "channel", id: "C0AF7JDDBB8" }, // #jerry
       },
     },
-
-    // Bobby handles Discord DMs (for alerts)
     {
       agentId: "bobby",
       match: {
+        channel: "slack",
+        teamId: "T255F0YHW",
+        peer: { kind: "channel", id: "C0AF9LAUWPL" }, // #bobby
+      },
+    },
+    {
+      agentId: "billy",
+      match: {
+        channel: "slack",
+        teamId: "T255F0YHW",
+        peer: { kind: "channel", id: "C0AEU73AYNB" }, // #billy
+      },
+    },
+
+    // Keep Jerry in #home-automation for now
+    {
+      agentId: "jerry",
+      match: {
+        channel: "slack",
+        teamId: "T255F0YHW",
+        peer: { kind: "channel", id: "G01A46T1546" }, // #home-automation (private)
+      },
+    },
+
+    // Discord direct chats:
+    // peer.id is the SENDER USER ID (not the bot/application id).
+    // With one Discord user account, DMs route to one agent; use Discord channels for per-agent split.
+    {
+      agentId: "jerry",
+      match: {
         channel: "discord",
-        peer: { kind: "direct", id: "123456789012345678" }, // Replace with real DM peer id
+        peer: { kind: "direct", id: "DISCORD_USER_ID" },
       },
     },
 
@@ -1003,14 +1058,16 @@ openclaw agent --agent billy --message "Test scheduled automation path"
 **Channel Routing:**
 
 ```bash
-# Test Slack → Jerry
-# Send message in Slack: "Hello Jerry, what's the status?"
+# Test Slack private channels
+# In #jerry: "Hello Jerry, what's the status?"
+# In #bobby: "Check Nomad cluster health"
+# In #billy: "Run automation dry-run"
+# In #home-automation: Jerry should still respond
 
-# Test Discord → Jerry (or Bobby if configured)
-# Send message in Discord: "Check Nomad cluster health"
-
-# Test WhatsApp → Jerry
-# Send WhatsApp message: "List running Nomad jobs"
+# Test Discord DMs
+# DM Jerry account binding: "Status?"
+# DM Bobby account binding: "Check Consul health"
+# DM Billy account binding: "List scheduled tasks"
 
 # Verify A2A communication
 # In Slack: "Ask Bobby to check Consul services"
@@ -1083,11 +1140,7 @@ nomad logs openclaw | grep -i slack
 # Check Discord connection
 nomad logs openclaw | grep -i discord
 
-# Check WhatsApp connection
-nomad logs openclaw | grep -i whatsapp
-
-# Re-pair WhatsApp (if needed)
-nomad exec openclaw openclaw channels whatsapp pair
+# WhatsApp is intentionally paused in this phase.
 
 # Test channel routing
 # Send test message on each channel, verify correct agent responds
@@ -1126,12 +1179,12 @@ consul kv delete -recurse /openclaw/agents/
 
 ### Estimated Monthly Costs (Option 3)
 
-**All homelab agents use cloud LLMs (reliable):**
+**All homelab agents use GLM-first stack during testing:**
 
-- Jerry tasks: ~500K tokens/day × $3/M tokens = $45/month
-- Bobby tasks: ~200K tokens/day × $3/M tokens = $18/month
-- Billy tasks: ~300K tokens/day × $3/M tokens = $27/month
-- **Total: ~$90/month**
+- Jerry tasks: ~500K tokens/day × GLM pricing
+- Bobby tasks: ~200K tokens/day × GLM pricing
+- Billy tasks: ~300K tokens/day × GLM pricing
+- **Total: depends on current GLM tier + failover usage**
 
 **MacBook agent (optional, Phase 4):**
 
@@ -1143,7 +1196,7 @@ consul kv delete -recurse /openclaw/agents/
 **Future job-specific agents:**
 
 - Cost scales linearly with agent count
-- Consider using claude-haiku-4-6 for low-priority agents ($0.25/M tokens = 12x cheaper)
+- Consider using GLM Flash / GLM-5 fallback mix for low-priority agents
 - Or use multi-agent routing to consolidate similar tasks
 
 ---
@@ -1161,7 +1214,7 @@ consul kv delete -recurse /openclaw/agents/
 
 - ✅ Slack response time: <2s
 - ✅ Discord response time: <2s
-- ✅ WhatsApp response time: <3s
+- ✅ WhatsApp readiness: explicitly paused (no production expectation yet)
 - ✅ No duplicate responses across channels
 - ✅ Channel routing accuracy: 100%
 
