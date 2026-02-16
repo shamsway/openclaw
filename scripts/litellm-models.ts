@@ -16,6 +16,8 @@ export type ScriptArgs = {
   api: ModelApi;
 };
 
+const DEFAULT_PRIMARY_MODEL = "anthropic/claude-sonnet-4-5-20250929";
+
 export function parseArgs(argv: string[]): ScriptArgs {
   let url: string | undefined;
   let apiKey: string | undefined;
@@ -53,9 +55,7 @@ export function parseArgs(argv: string[]): ScriptArgs {
   if (!url) {
     throw new Error("Missing required --url flag or LITELLM_URL env var");
   }
-  if (!primary) {
-    throw new Error("Missing required --primary flag");
-  }
+  primary ??= DEFAULT_PRIMARY_MODEL;
 
   return { url, apiKey, primary, fallbacks, providerName, api };
 }
@@ -189,13 +189,13 @@ async function fetchModels(url: string, apiKey: string | undefined): Promise<Lit
 }
 
 function printUsage(): void {
-  console.error(`Usage: bun scripts/litellm-models.ts --url <litellm-url> --primary <model-id> [options]
+  console.error(`Usage: bun scripts/litellm-models.ts --url <litellm-url> [--primary <model-id>] [options]
 
 Required:
   --url <url>              LiteLLM base URL (or set LITELLM_URL env var)
-  --primary <model-id>     Model ID to use as primary
 
 Optional:
+  --primary <model-id>     Model ID to use as primary (default: ${DEFAULT_PRIMARY_MODEL})
   --api-key <key>          API key (or set LITELLM_API_KEY env var)
   --fallbacks <m1,m2,...>  Comma-separated fallback model IDs
   --provider-name <name>   Provider key in config (default: litellm)

@@ -79,8 +79,9 @@ describe("parseArgs", () => {
     }
   });
 
-  it("throws when --primary is missing", () => {
-    expect(() => parseArgs(["--url", "http://localhost:4000"])).toThrow("--primary");
+  it("uses default primary when --primary is missing", () => {
+    const result = parseArgs(["--url", "http://localhost:4000"]);
+    expect(result.primary).toBe("anthropic/claude-sonnet-4-5-20250929");
   });
 });
 
