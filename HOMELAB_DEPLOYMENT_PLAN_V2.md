@@ -186,10 +186,22 @@ openclaw --profile macbook onboard
 # LM Studio runs local server on http://localhost:1234
 # Configure in ~/.openclaw-macbook/openclaw.json:
 {
-  "modelProviders": {
-    "lmstudio": {
-      "baseUrl": "http://localhost:1234/v1",
-      "apiKey": "not-needed"  // LM Studio doesn't require auth
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "lmstudio": {
+        "baseUrl": "http://localhost:1234/v1",
+        "apiKey": "lmstudio-local",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "local-model",
+            "name": "LM Studio Local Model",
+            "contextWindow": 32768,
+            "maxTokens": 4096
+          }
+        ]
+      }
     }
   },
   "agents": {
@@ -217,11 +229,12 @@ openclaw --profile macbook gateway --port 18789
 ```json5
 // ~/.openclaw/openclaw.json (on homelab gateway)
 {
-  modelProviders: {
-    anthropic: {
-      apiKey: "${ANTHROPIC_API_KEY}",
-    },
-    // Note: No MacBook LLM provider - homelab uses cloud for reliability
+  // Use environment/auth profiles for Anthropic.
+  // Optional custom providers belong under models.providers.
+  models: {
+    mode: "merge",
+    // Note: No MacBook LM Studio provider - homelab uses cloud for reliability
+    providers: {},
   },
 
   agents: {
@@ -267,8 +280,7 @@ openclaw --profile macbook gateway --port 18789
     // Bobby handles specific Discord DM or channel (for alerts)
     // { agentId: "bobby", match: { channel: "discord", peer: { kind: "dm", id: "your-dm-id" } } },
 
-    // Billy handles cron tasks
-    { agentId: "billy", match: { channel: "cron" } },
+    // Cron jobs target an agent via job.agentId, not via bindings.
   ],
 }
 ```
@@ -601,6 +613,57 @@ openclaw --profile macbook gateway --port 18789
 - ✅ Demo potential (if successful)
 - ✅ Strategic learning (even if not production-ready)
 
+**Option 2 Readiness Gates (Before Implementation):**
+
+- [ ] Define baseline metrics from Option 3 for direct comparison:
+  - `p95` end-to-end task latency
+  - Task success rate
+  - MTTR after single-node failure
+  - Duplicate or missed message rate
+  - Weekly operational overhead (hours/week)
+- [ ] Define minimum improvement thresholds required to justify Option 2 complexity.
+- [ ] Time-box Option 2 R&D and include a stop condition if thresholds are not met.
+
+**Inter-Gateway Message Contract (Required):**
+
+- [ ] Standard envelope fields:
+  - `message_id`, `correlation_id`
+  - `source_gateway`, `source_agent`
+  - `target_gateway`, `target_agent`
+  - `created_at`, `ttl`, `retry_count`
+  - `state` (`queued|delivered|acked|failed|dead-letter`)
+- [ ] Idempotency rule: reprocessing the same `message_id` must be safe and side-effect free.
+- [ ] Version the message schema (`schema_version`) and reject unknown major versions.
+
+**Loop Prevention + Safety Controls:**
+
+- [ ] Max hop count (`max_hops`) per message.
+- [ ] Per-gateway dedupe cache keyed by `message_id` + `source_gateway`.
+- [ ] Explicit non-rebroadcast flag for terminal deliveries.
+- [ ] Dead-letter queue path for poison/expired messages.
+
+**Failure Semantics (Must Be Explicit):**
+
+- [ ] Ack timeout and retry/backoff policy.
+- [ ] Delivery state transitions with observability events at each transition.
+- [ ] Clear rules for expired TTL, max retries exceeded, and partial failure handling.
+- [ ] Alerting criteria for stuck queues, retry storms, and dead-letter growth.
+
+**Security Requirements (Cross-Gateway):**
+
+- [ ] Gateway-to-gateway authentication and sender identity verification.
+- [ ] Per-agent authorization policy for which remote agents can invoke which capabilities.
+- [ ] Transport security with integrity guarantees (signed payloads or equivalent trust model).
+- [ ] Secret rotation playbook for gateway credentials/tokens.
+
+**Recommended Experiment Sequence (Smallest Useful Path):**
+
+1. Implement one one-way path only (Jerry -> Bobby infrastructure query) with ack.
+2. Inject fault scenarios (drop, duplicate, delay, partition) and verify behavior.
+3. Prove no duplicate side effects under retries.
+4. Compare measured outcomes against Option 3 baseline.
+5. Decide go/no-go using predefined thresholds.
+
 **Decision Point:** After Phase 1-4 stable, review design and decide whether to implement
 
 ---
@@ -756,13 +819,24 @@ EOT
 ```json5
 {
   // Model providers
-  modelProviders: {
-    anthropic: {
-      apiKey: "${ANTHROPIC_API_KEY}",
-    },
-    litellm: {
-      baseUrl: "${LITELLM_BASE_URL}", // MacBook LiteLLM proxy
-      apiKey: "${LITELLM_API_KEY}",
+  // Anthropic uses env/auth profiles directly.
+  models: {
+    mode: "merge",
+    // Optional homelab LiteLLM proxy (not MacBook-dependent).
+    providers: {
+      litellm: {
+        baseUrl: "${LITELLM_BASE_URL}",
+        apiKey: "${LITELLM_API_KEY}",
+        api: "openai-completions",
+        models: [
+          {
+            id: "local-llama-70b",
+            name: "Local Llama 70B",
+            contextWindow: 32768,
+            maxTokens: 4096,
+          },
+        ],
+      },
     },
   },
 
@@ -793,16 +867,23 @@ EOT
         model: "anthropic/claude-sonnet-4-5",
         sandbox: {
           mode: "non-main",
-          allowedCommands: ["nomad", "consul", "curl", "jq"],
+        },
+        tools: {
+          exec: {
+            security: "allowlist",
+            safeBins: ["nomad", "consul", "curl", "jq"],
+          },
         },
       },
       {
         id: "billy",
         name: "Billy (Automation)",
-        description: "Scheduled tasks and automation using local LLM",
+        description: "Scheduled tasks and automation (cloud-backed for reliability)",
         workspace: "~/.openclaw/workspace-billy",
-        model: "litellm/local-llama-70b", // MacBook local LLM
-        fallbackModel: "anthropic/claude-haiku-4-6", // If MacBook offline
+        model: {
+          primary: "anthropic/claude-sonnet-4-5",
+          fallbacks: ["anthropic/claude-haiku-4-6"],
+        },
         sandbox: {
           mode: "all",
           workspaceAccess: "rw",
@@ -826,17 +907,11 @@ EOT
       agentId: "bobby",
       match: {
         channel: "discord",
-        peer: { kind: "dm" },
+        peer: { kind: "direct", id: "123456789012345678" }, // Replace with real DM peer id
       },
     },
 
-    // Billy handles cron/scheduled tasks
-    {
-      agentId: "billy",
-      match: {
-        channel: "cron",
-      },
-    },
+    // Cron/scheduled tasks target agents by job.agentId (not bindings).
   ],
 
   // Gateway configuration
@@ -864,25 +939,30 @@ EOT
     },
   },
 
-  // Cron jobs (for Billy)
+  // Cron scheduler settings
   cron: {
     enabled: true,
-    jobs: [
-      {
-        id: "bobby-heartbeat",
-        schedule: "*/5 * * * *", // Every 5 minutes
-        agentId: "bobby",
-        message: "Run infrastructure heartbeat check",
-      },
-      {
-        id: "daily-summary",
-        schedule: "0 9 * * *", // 9 AM daily
-        agentId: "billy",
-        message: "Generate daily infrastructure summary",
-      },
-    ],
+    maxConcurrentRuns: 2,
+    sessionRetention: "24h",
   },
 }
+```
+
+```bash
+# Add cron jobs via CLI (recommended; persisted in cron/jobs.json)
+openclaw cron add \
+  --name "Bobby heartbeat" \
+  --cron "*/5 * * * *" \
+  --session isolated \
+  --agent bobby \
+  --message "Run infrastructure heartbeat check"
+
+openclaw cron add \
+  --name "Billy daily summary" \
+  --cron "0 9 * * *" \
+  --session isolated \
+  --agent billy \
+  --message "Generate daily infrastructure summary"
 ```
 
 ---
@@ -915,7 +995,7 @@ consul catalog services | grep openclaw
 # In Slack to Jerry: "Ask Bobby to check Nomad status"
 
 # Test Billy (via cron job or manual trigger)
-openclaw agent --agent-id billy --message "Test local LLM"
+openclaw agent --agent billy --message "Test scheduled automation path"
 ```
 
 ### Phase 2 Validation
