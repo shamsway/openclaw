@@ -183,6 +183,275 @@ openclaw approvals allowlist add --node "Billy Remote Node" "/usr/bin/uname"
 
 ---
 
+### Phase 1.5: Plugin Installation & Configuration
+
+**Goal:** Enable and configure recommended plugins for memory, multi-agent coordination, automation workflows, and observability
+
+**Status:** READY AFTER PHASE 1 (memory-core already enabled during initial setup)
+
+**Plugins Covered:**
+
+| Plugin | ID | Purpose |
+|---|---|---|
+| Memory (Core) | `memory-core` | File-backed `memory_search`/`memory_get` tools — baseline long-term memory |
+| Memory (LanceDB) | `memory-lancedb` | Vector-search memory with auto-recall/capture — upgrade path over memory-core |
+| Thread Ownership | `thread-ownership` | Prevents Bobby/Billy/Jerry from double-replying in the same Slack thread |
+| Lobster | `lobster` | Resumable typed workflows with approvals — multi-step automation shell |
+| LLM Task | `llm-task` | JSON-only structured LLM sub-tasks; designed to be called from Lobster workflows |
+| Diagnostics (OTel) | `diagnostics-otel` | OpenTelemetry exporter for homelab observability stack (Prometheus/Grafana/Jaeger) |
+
+---
+
+#### Step 1: memory-core (already done)
+
+Enabled during initial gateway setup. No further action needed.
+
+```bash
+# Verify it is active
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins info memory-core
+# Expected: Status: loaded
+```
+
+**Future upgrade to memory-lancedb:**
+
+`memory-lancedb` replaces `memory-core` in the memory slot. Enable it when you want
+vector-search recall and automatic memory capture from conversations.
+
+```bash
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins enable memory-lancedb
+./homelab/ctl.sh restart
+```
+
+The enable command automatically disables `memory-core` (they share the `memory` slot).
+LanceDB uses an embedded native library; no separate database service is required.
+
+---
+
+#### Step 2: Thread Ownership
+
+Prevents multiple agents from claiming the same Slack thread when a message is
+broadcast to multiple bindings. Requires the `slack-forwarder` ownership API to be
+reachable from the gateway container.
+
+**Prerequisite:** A `slack-forwarder` service must be deployed and reachable.
+Skip this step if that service is not yet available; add it when thread collisions
+are observed in practice.
+
+```bash
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins enable thread-ownership
+```
+
+**Config in `openclaw.json`:**
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "thread-ownership": {
+        "enabled": true,
+        "config": {
+          "forwarderUrl": "http://slack-forwarder.service.consul:PORT"
+        }
+      }
+    }
+  }
+}
+```
+
+---
+
+#### Step 3: Lobster
+
+Adds the `lobster` agent tool for running typed, resumable workflows with approval gates.
+The plugin executes the `lobster` CLI as a subprocess — it must be installed in the
+homelab image.
+
+**Prerequisite:** Verify `lobster` is available in the container:
+
+```bash
+podman exec homelab_openclaw-gateway_1 which lobster || echo "not found — add to Dockerfile"
+```
+
+If not present, add the install step to `homelab/Dockerfile` before enabling.
+
+```bash
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins enable lobster
+```
+
+The `lobster` tool is registered with `optional: true`, so it must be explicitly
+added to each agent's allow list (see Step 6 below).
+
+---
+
+#### Step 4: LLM Task
+
+Adds a `llm-task` tool for JSON-only structured LLM sub-tasks. Designed to be invoked
+from Lobster workflows via `openclaw.invoke --each`.
+
+```bash
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins enable llm-task
+```
+
+**Config in `openclaw.json`** (set defaults to your ZAI stack):
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "llm-task": {
+        "enabled": true,
+        "config": {
+          "defaultProvider": "zai",
+          "defaultModel": "glm-4.7-flash",
+          "maxTokens": 2048,
+          "timeoutMs": 30000
+        }
+      }
+    }
+  }
+}
+```
+
+Like `lobster`, `llm-task` is registered with `optional: true` and must be added to
+each agent's allow list.
+
+---
+
+#### Step 5: Diagnostics (OTel)
+
+Exports OpenClaw metrics/traces to your observability stack via OpenTelemetry.
+Requires an OTEL-compatible collector endpoint (Grafana Alloy, Jaeger, etc.).
+
+```bash
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins enable diagnostics-otel
+```
+
+**Config in `openclaw.json`:**
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "diagnostics-otel": {
+        "enabled": true,
+        "config": {
+          "endpoint": "http://otel-collector.service.consul:4318",
+          "serviceName": "openclaw-gateway"
+        }
+      }
+    }
+  }
+}
+```
+
+Adjust `endpoint` to match your Grafana Alloy or OTEL collector address. Check
+Consul for the registered service name:
+
+```bash
+CONSUL_HTTP_ADDR=http://consul.service.consul:8500 consul catalog services | grep -i otel
+```
+
+---
+
+#### Step 6: Update Agent Tool Allowlists
+
+`lobster` and `llm-task` are optional tools — they must be explicitly added to each
+agent's `tools.allow` list. Add only to agents that will use workflows.
+
+**Jerry** (general hub — enable both):
+
+```json
+{
+  "id": "jerry",
+  "tools": {
+    "profile": "coding",
+    "allow": ["group:web", "message", "agents_list", "lobster", "llm-task"],
+    "deny": ["image", "browser", "canvas", "nodes", "cron", "gateway"]
+  }
+}
+```
+
+**Bobby** (infrastructure monitoring — lobster useful for multi-step remediation):
+
+```json
+{
+  "id": "bobby",
+  "tools": {
+    "profile": "coding",
+    "allow": ["group:web", "group:sessions", "message", "agents_list", "lobster"],
+    "deny": ["write", "edit", "apply_patch", "browser", "canvas", "nodes", "cron", "gateway", "image"]
+  }
+}
+```
+
+**Billy** (scheduled tasks — lobster useful for pipelines):
+
+```json
+{
+  "id": "billy",
+  "tools": {
+    "profile": "coding",
+    "allow": ["group:sessions", "message", "agents_list", "lobster"],
+    "deny": ["browser", "canvas", "nodes", "cron", "gateway", "image"]
+  }
+}
+```
+
+After editing `openclaw.json`, restart to apply:
+
+```bash
+./homelab/ctl.sh restart
+```
+
+---
+
+**Deliverables:**
+
+- [ ] `memory-core` confirmed active (`memory_search`, `memory_get` tools available)
+- [ ] `thread-ownership` enabled and configured with `forwarderUrl` (when slack-forwarder is available)
+- [ ] `lobster` CLI present in image and plugin enabled
+- [ ] `llm-task` enabled with ZAI GLM defaults
+- [ ] `diagnostics-otel` enabled with OTEL collector endpoint
+- [ ] Agent tool allowlists updated for `lobster` and `llm-task`
+- [ ] Gateway restarts clean (no config errors in logs)
+
+**Success Criteria:**
+
+- ✅ `openclaw plugins list` shows all target plugins as `loaded`
+- ✅ No config validation errors on gateway startup
+- ✅ `memory_search` and `memory_get` appear in Jerry's tool list
+- ✅ `lobster` and `llm-task` appear in Jerry's tool list
+- ✅ OTel metrics visible in Grafana/Jaeger (when `diagnostics-otel` is active)
+- ✅ No Slack thread double-replies from multiple agents
+
+**Validation:**
+
+```bash
+# Confirm all target plugins are loaded
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins list
+
+# Verify no startup errors
+podman logs --tail 20 homelab_openclaw-gateway_1 2>&1
+
+# Ask Jerry to confirm its tools (via chat or sessions CLI)
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs agent \
+  --agent jerry \
+  --message "List your available tools"
+
+# Test memory tool directly
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs agent \
+  --agent jerry \
+  --message "Save a memory: the homelab cluster has 3 nodes: jerry, bobby, billy"
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs agent \
+  --agent jerry \
+  --message "What do you know about the homelab cluster nodes?"
+
+# Test lobster availability (requires lobster CLI in image)
+podman exec homelab_openclaw-gateway_1 lobster --version
+```
+
+---
+
 ### Phase 2: Channel Configuration & Testing (Week 2)
 
 **Goal:** Configure Slack + Discord and test multi-agent routing (WhatsApp intentionally paused)
@@ -1321,6 +1590,13 @@ consul kv delete -recurse /openclaw/agents/
 ---
 
 ## Changelog
+
+### v2.1 (2026-02-16)
+
+- Added **Phase 1.5: Plugin Installation & Configuration** covering memory-core,
+  memory-lancedb (upgrade path), thread-ownership, lobster, llm-task, and diagnostics-otel
+- Documented agent tool allowlist changes required for lobster and llm-task (optional tools)
+- Added validation steps and success criteria for each plugin
 
 ### v2.0 (2026-02-16)
 
