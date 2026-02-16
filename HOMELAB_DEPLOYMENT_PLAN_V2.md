@@ -115,7 +115,7 @@ This deployment plan implements a **phased approach** to building an enterprise-
 1. ✅ Already done: Podman compose testing (from v1.0 plan)
 2. Deploy gateway to Nomad (Jerry node, pinned)
 3. Configure 3 agents (Jerry, Bobby, Billy)
-4. Set up channel routing (Slack → Jerry, Discord → Bobby)
+4. Set up channel routing (Slack → Jerry, Discord → Jerry with optional Bobby DM binding for alerts)
 5. Test built-in A2A (Jerry → Bobby via `sessions_send`)
 
 **Deliverables:**
@@ -327,7 +327,7 @@ openclaw --profile macbook gateway --port 18789
 
   gateways/
     jerry-gateway/
-      url: "wss://jerry.tailscale:18789"
+      url: "ws://jerry.tailscale:18789"
       agents: ["jerry", "bobby", "billy"]
       status: "healthy"
       last_heartbeat: "2026-02-16T12:00:00Z"
@@ -351,7 +351,7 @@ openclaw --profile macbook gateway --port 18789
       gateway: "jerry-gateway"
       workspace: "~/.openclaw/workspace-billy"
       capabilities: ["cron", "automation", "scheduled-tasks"]
-      model_provider: "litellm-macbook"
+      model_provider: "anthropic-cloud"
 
   shared-state/
     recent-events: [
@@ -433,7 +433,7 @@ server.start({ transport: "stdio" });
 
 **Bobby Heartbeat Skill:**
 
-````markdown
+```markdown
 ---
 name: infrastructure-heartbeat
 description: Monitor Nomad/Consul health and update Consul KV with status
@@ -453,7 +453,6 @@ agent: bobby
    ```bash
    nomad status -json | jq '.Allocations[] | select(.ClientStatus != "running")'
    ```
-````
 
 - Count failed allocations
 - List unhealthy jobs
@@ -483,7 +482,7 @@ agent: bobby
    - Timestamp written to Consul KV
    - Next check scheduled
 
-````
+```
 
 ---
 
@@ -534,7 +533,7 @@ openclaw --profile macbook onboard
 openclaw --profile macbook gateway --port 18789
 
 # Or use OpenClaw.app (menubar, GUI onboarding)
-````
+```
 
 ---
 
@@ -919,9 +918,10 @@ EOT
     port: 18789,
     bind: "lan", // Accessible over Tailscale
 
-    // Optional Tailscale Serve (if not using Traefik)
+    // Tailscale Serve is disabled in this initial LAN-bound state.
+    // If enabling Serve/Funnel later, switch bind to "loopback".
     tailscale: {
-      mode: "serve", // or "funnel" for public
+      mode: "off",
       resetOnExit: false,
     },
   },
@@ -975,7 +975,7 @@ openclaw cron add \
 
 ```bash
 # From any Tailscale node
-curl https://jerry.tailscale:18789/health
+curl http://jerry.tailscale:18789/health
 
 # Via Nomad
 nomad status openclaw
@@ -1046,7 +1046,7 @@ consul kv get -recurse /openclaw/shared-state/
 nomad status openclaw
 
 # Gateway health endpoint
-curl https://jerry.tailscale:18789/health
+curl http://jerry.tailscale:18789/health
 
 # Agent status via Consul KV (Phase 3)
 consul kv get -recurse /openclaw/agents/ | grep status
@@ -1232,7 +1232,7 @@ consul kv delete -recurse /openclaw/agents/
 ### v2.0 (2026-02-16)
 
 - Refocused on **Option 3 (Hybrid)** as primary architecture
-- Added **MacBook LiteLLM integration** as core Phase 2
+- Positioned **MacBook local-LLM gateway** as optional independent Phase 4
 - Designed **Consul KV infrastructure** for Phase 3
 - Included **Option 2 experimentation path** for future
 - Added **cost analysis** showing local LLM savings
