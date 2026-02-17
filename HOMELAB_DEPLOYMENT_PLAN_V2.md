@@ -356,7 +356,12 @@ CONSUL_HTTP_ADDR=http://consul.service.consul:8500 consul catalog services | gre
 #### Step 6: Update Agent Tool Allowlists
 
 `lobster` and `llm-task` are optional tools — they must be explicitly added to each
-agent's `tools.allow` list. Add only to agents that will use workflows.
+agent's `tools.alsoAllow` list. Add only to agents that will use workflows.
+
+> **IMPORTANT:** Use `alsoAllow`, NOT `allow`. The `allow` field is a strict allowlist
+> that **replaces** the profile's tool set entirely — it would strip all `coding` profile
+> tools (exec, read, write, session_status, etc.). `alsoAllow` is **additive** on top of
+> the profile. See CLAUDE.md Known Issues § 2 for details.
 
 **Jerry** (general hub — enable both):
 
@@ -365,7 +370,7 @@ agent's `tools.allow` list. Add only to agents that will use workflows.
   "id": "jerry",
   "tools": {
     "profile": "coding",
-    "allow": ["group:web", "message", "agents_list", "lobster", "llm-task"],
+    "alsoAllow": ["group:web", "message", "agents_list", "lobster", "llm-task"],
     "deny": ["image", "browser", "canvas", "nodes", "cron", "gateway"]
   }
 }
@@ -378,7 +383,7 @@ agent's `tools.allow` list. Add only to agents that will use workflows.
   "id": "bobby",
   "tools": {
     "profile": "coding",
-    "allow": ["group:web", "group:sessions", "message", "agents_list", "lobster"],
+    "alsoAllow": ["group:web", "group:sessions", "message", "agents_list", "lobster"],
     "deny": ["write", "edit", "apply_patch", "browser", "canvas", "nodes", "cron", "gateway", "image"]
   }
 }
@@ -391,7 +396,7 @@ agent's `tools.allow` list. Add only to agents that will use workflows.
   "id": "billy",
   "tools": {
     "profile": "coding",
-    "allow": ["group:sessions", "message", "agents_list", "lobster"],
+    "alsoAllow": ["group:sessions", "message", "agents_list", "lobster"],
     "deny": ["browser", "canvas", "nodes", "cron", "gateway", "image"]
   }
 }
@@ -550,9 +555,9 @@ openclaw --profile macbook gateway --port 18789
     mode: "merge",
     providers: {
       zai: {
-        baseUrl: "https://api.z.ai/api/paas/v4",
+        baseUrl: "https://api.z.ai/api/anthropic",
         apiKey: "${ZAI_API_KEY}",
-        api: "openai-completions",
+        api: "anthropic-messages", // REQUIRED: coding endpoint does not return structured tool calls
         models: [
           { id: "glm-4.7", name: "GLM-4.7", contextWindow: 128000, maxTokens: 8192 },
           { id: "glm-5", name: "GLM-5", contextWindow: 128000, maxTokens: 8192 },
@@ -1590,6 +1595,19 @@ consul kv delete -recurse /openclaw/agents/
 ---
 
 ## Changelog
+
+### v2.2 (2026-02-16)
+
+- **Fix:** Phase 1.5 Step 6 agent allowlist examples corrected from `allow` to `alsoAllow`.
+  `allow` is a strict replacement of the profile tool set; `alsoAllow` is additive.
+  Using `allow` silently strips all `coding` profile tools (exec, read, write, session_status, etc.).
+- **Fix:** ZAI provider baseUrl updated from `https://api.z.ai/api/paas/v4` to
+  `https://api.z.ai/api/anthropic`, and `api` changed from `openai-completions` to
+  `anthropic-messages`. The coding endpoint does not emit structured function-call JSON —
+  the Anthropic-compatible endpoint does. Root cause of agents hallucinating tool names
+  rather than calling them.
+- Added warning callout to Step 6 explaining the `allow` vs `alsoAllow` distinction.
+- Updated ZAI provider config example in Phase 2 with correct endpoint and API type.
 
 ### v2.1 (2026-02-16)
 
