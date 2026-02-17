@@ -167,7 +167,11 @@ openclaw approvals allowlist add --node "Billy Remote Node" "/usr/bin/uname"
 2. ✅ Gateway running in Podman compose on Jerry (Nomad deployment deferred to later)
 3. ✅ Configure 3 agents (Jerry, Bobby, Billy) — all responding
 4. ✅ Set up channel routing (Slack private channels + Discord DMs per agent; Jerry remains in `#home-automation`)
-5. ⏳ Test built-in A2A (Jerry → Bobby via `sessions_send`) — pending
+5. ✅ A2A communication verified (Jerry → Bobby via `sessions_spawn` + `sessions_send`)
+
+**A2A Configuration Note:** `sessions_spawn` requires `subagents.allowAgents` on each
+agent's config entry. Added `["bobby", "billy"]` to Jerry, `["jerry", "billy"]` to Bobby,
+and `["jerry", "bobby"]` to Billy in `openclaw-agents/jerry/openclaw.json`.
 
 **Deliverables:**
 
@@ -181,7 +185,7 @@ openclaw approvals allowlist add --node "Billy Remote Node" "/usr/bin/uname"
 
 - ✅ Gateway healthy and reachable via Tailscale
 - ✅ All 3 agents responding to messages
-- ⏳ A2A communication between agents works — not yet tested
+- ✅ A2A communication between agents works (Jerry spawns Bobby; Bobby responds in-character)
 - ✅ Nomad restarts recover cleanly *(Podman: container restarts cleanly)*
 - ✅ Logs accessible via Nomad UI *(Podman: `podman logs -f homelab_openclaw-gateway_1`)*
 
@@ -396,7 +400,7 @@ After editing `openclaw.json`, restart to apply:
 
 - [x] `memory-core` confirmed active (`memory_search`, `memory_get` tools available)
 - [ ] `thread-ownership` enabled and configured with `forwarderUrl` (when slack-forwarder is available)
-- [x] `lobster` plugin enabled; `lobster` CLI binary install still pending (Dockerfile)
+- [x] `lobster` plugin enabled; `lobster` CLI binary added to Dockerfile (`@clawdbot/lobster` via npm)
 - [x] `llm-task` enabled with ZAI GLM defaults
 - [ ] `diagnostics-otel` enabled with OTEL collector endpoint (deps in image; needs collector)
 - [x] Agent tool allowlists updated for `lobster` and `llm-task`
@@ -437,6 +441,135 @@ podman exec homelab_openclaw-gateway_1 node openclaw.mjs agent \
 # Test lobster availability (requires lobster CLI in image)
 podman exec homelab_openclaw-gateway_1 lobster --version
 ```
+
+---
+
+### Phase 1.75: MCP Server Validation & Remote Tool Nodes
+
+**Goal:** Verify agents can reach all deployed MCP servers and test remote node execution on Bobby/Billy hosts
+
+**Status:** 🔄 IN PROGRESS — next up
+
+---
+
+#### Step 1: Verify MCP Server Access
+
+Four MCP servers are deployed. Agents use `mcporter` CLI to call them (via `exec` tool).
+The `homelab/.mcp.json` is the source of truth; it is baked into `/root/.mcporter/mcporter.json`
+at image build time.
+
+**Important:** Use **internal** HTTP URLs, not the Traefik external URLs — external HTTPS
+endpoints are not reachable from inside the container.
+
+| Server | Internal URL | Status |
+|---|---|---|
+| `context7` | `https://mcp.context7.com/mcp` | external, always reachable |
+| `mcp-nomad-server` | `http://192.168.252.8:30859/mcp` | confirmed reachable |
+| `infra-mcp-server` | `http://192.168.252.6:26378/mcp` | confirmed reachable |
+| `tailscale-mcp-server` | `http://192.168.252.6:25820/mcp` | confirmed reachable |
+
+**Fix applied:** `homelab/.mcp.json` updated to use internal URLs for all three homelab
+servers (was using external Traefik URL for `mcp-nomad-server`; `infra-mcp-server` and
+`tailscale-mcp-server` were missing entirely). **Requires image rebuild to take effect.**
+
+**Validation (after rebuild):**
+
+```bash
+# Rebuild and push image with updated .mcp.json
+./homelab/ctl.sh build && ./homelab/ctl.sh push
+
+# Pull and restart
+./homelab/ctl.sh pull && ./homelab/ctl.sh restart
+
+# Verify mcporter sees all 4 servers
+podman exec homelab_openclaw-gateway_1 cat /root/.mcporter/mcporter.json
+
+# Test each server (agents call mcporter via exec)
+podman exec homelab_openclaw-gateway_1 mcporter list \
+  --http-url http://192.168.252.8:30859/mcp --allow-http --name mcp-nomad-server
+
+podman exec homelab_openclaw-gateway_1 mcporter list \
+  --http-url http://192.168.252.6:26378/mcp --allow-http --name infra-mcp-server
+
+podman exec homelab_openclaw-gateway_1 mcporter list \
+  --http-url http://192.168.252.6:25820/mcp --allow-http --name tailscale-mcp-server
+
+# Test via Jerry agent (end-to-end)
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs agent --agent jerry \
+  -m "Use mcporter to call list_jobs on mcp-nomad-server and report what Nomad jobs are running."
+```
+
+**Workaround until rebuild:** Agents can still call MCP servers using explicit `--http-url`
+flags in `mcporter` commands (as documented in `TOOLS.md`).
+
+---
+
+#### Step 2: Remote Tool Nodes (Bobby/Billy hosts)
+
+Run headless OpenClaw node hosts on the Bobby and Billy physical nodes. These connect back
+to Jerry's gateway and expose remote tool execution. All agents remain on Jerry's single
+gateway — the node hosts are peripheral execution targets only.
+
+**Prerequisites (on each remote host):**
+
+1. Image must be pulled from registry: `./homelab/ctl.sh pull` (run on bobby/billy hosts)
+2. `.env` must exist in repo root with all required vars set:
+   - `OPENCLAW_GATEWAY_TOKEN` — must match Jerry's gateway token
+   - `OPENCLAW_REMOTE_GATEWAY_HOST` — Jerry's Tailscale/LAN hostname (`jerry.shamsway.net`)
+   - `OPENCLAW_REMOTE_GATEWAY_PORT=18789`
+   - `OPENCLAW_BOBBY_NODE_CONFIG_DIR`, `OPENCLAW_BOBBY_NODE_WORKSPACE_DIR` (Bobby host)
+   - `OPENCLAW_BILLY_NODE_CONFIG_DIR`, `OPENCLAW_BILLY_NODE_WORKSPACE_DIR` (Billy host)
+
+**Start nodes (run on the respective host):**
+
+```bash
+# On bobby host:
+./homelab/ctl.sh node-up bobby
+
+# On billy host:
+./homelab/ctl.sh node-up billy
+
+# Follow logs
+./homelab/ctl.sh node-logs bobby
+./homelab/ctl.sh node-logs billy
+```
+
+**Validate from Jerry:**
+
+```bash
+# Should show 2 connected nodes after startup
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs nodes status
+
+# List devices (requires pairing approval first time)
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs devices list
+
+# Approve first-time pairing (get requestId from `devices list`)
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs devices approve <requestId>
+
+# Add uname to each node's allowlist (safe verification command)
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs approvals allowlist add \
+  --node "Bobby Remote Node" "/usr/bin/uname"
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs approvals allowlist add \
+  --node "Billy Remote Node" "/usr/bin/uname"
+```
+
+**Deliverables:**
+
+- [ ] `homelab/.mcp.json` updated with all 4 internal MCP server URLs *(done — needs rebuild)*
+- [ ] Image rebuilt and pushed with updated mcporter config
+- [ ] Jerry agent can call `mcp-nomad-server`, `infra-mcp-server`, `tailscale-mcp-server` via mcporter
+- [ ] Bobby node container running on Bobby host and paired with Jerry gateway
+- [ ] Billy node container running on Billy host and paired with Jerry gateway
+- [ ] `openclaw nodes status` shows 2 connected nodes on Jerry
+
+**Success Criteria:**
+
+- ✅ `mcporter list` succeeds for all 4 servers from inside the container
+- ✅ Jerry can query Nomad job list via `mcp-nomad-server`
+- ✅ Jerry can query infra health via `infra-mcp-server`
+- ✅ Tailscale MCP tools respond correctly
+- ✅ Bobby and Billy node hosts connected and paired
+- ✅ Remote tool execution (e.g. `uname`) works via node hosts
 
 ---
 
@@ -1582,6 +1715,25 @@ consul kv delete -recurse /openclaw/agents/
 
 ## Changelog
 
+### v2.5 (2026-02-17)
+
+- **A2A verified:** Jerry → Bobby `sessions_spawn` confirmed working. Bobby ran in a subagent
+  session (`agent:bobby:subagent:…`) and responded in-character with full tool access.
+  Root cause of earlier failure: `subagents.allowAgents` was not set on agent configs —
+  added `["bobby","billy"]` to Jerry, `["jerry","billy"]` to Bobby, `["jerry","bobby"]` to Billy
+  in `openclaw-agents/jerry/openclaw.json`. Requires gateway restart to apply (done).
+- **Lobster CLI:** Added `npm install -g @clawdbot/lobster` to `homelab/Dockerfile`. The
+  `@clawdbot/lobster` npm package installs the `lobster` binary on PATH. Requires image rebuild.
+- **MCP config fixed:** `homelab/.mcp.json` updated with all four MCP servers using internal
+  HTTP URLs. Previous config had the external Traefik URL for `mcp-nomad-server` (unreachable
+  from inside container) and was missing `infra-mcp-server` and `tailscale-mcp-server` entirely.
+  Requires image rebuild (mcporter config is baked at build time from `.mcp.json`).
+- **Phase 1.75 added:** New phase covering MCP validation + remote node bringup, sequenced
+  before cron job configuration. Remote nodes (Bobby/Billy hosts) must be paired with Jerry
+  gateway and verified before cron is useful.
+- **Next:** Rebuild image with lobster CLI + updated MCP config → verify MCP tools → bring
+  up Bobby/Billy remote node containers → validate remote tool execution → then add cron jobs.
+
 ### v2.4 (2026-02-17)
 
 - **Phase 1.5 mostly complete:** `lobster` and `llm-task` plugins enabled and running.
@@ -1682,4 +1834,10 @@ consul kv delete -recurse /openclaw/agents/
 
 ---
 
-**Next Steps:** Install `lobster` CLI binary in Dockerfile; enable `diagnostics-otel` once OTel collector endpoint is known; enable `thread-ownership` once slack-forwarder is deployed; run A2A test (Jerry → Bobby via `sessions_send`); validate Billy cron jobs.
+**Next Steps (Phase 1.75):**
+1. **Rebuild image** — picks up lobster CLI (`@clawdbot/lobster`) + updated MCP server URLs in mcporter config
+2. **Verify MCP tools** — test `mcp-nomad-server`, `infra-mcp-server`, `tailscale-mcp-server` via mcporter from inside container and via Jerry agent turn
+3. **Bring up remote nodes** — start Bobby/Billy node containers on their respective hosts, pair with Jerry gateway, verify `openclaw nodes status` shows both connected
+4. **Validate remote tool execution** — approve allowlist entries, confirm agents can dispatch tools to remote nodes
+5. **Add cron jobs** — Bobby heartbeat (`*/15 * * * *`) + Billy daily summary (`0 9 * * *`)
+6. **Deferred:** enable `diagnostics-otel` once OTel collector endpoint is known; enable `thread-ownership` once slack-forwarder is deployed

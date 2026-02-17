@@ -6,7 +6,15 @@
     },
     "mcp-nomad-server": {
       "type": "http",
-      "url": "https://nomad-mcp.shamsway.net/mcp"
+      "url": "http://192.168.252.8:30859/mcp"
+    },
+    "infra-mcp-server": {
+      "type": "http",
+      "url": "http://192.168.252.6:26378/mcp"
+    },
+    "tailscale-mcp-server": {
+      "type": "http",
+      "url": "http://192.168.252.6:25820/mcp"
     }
   }
 }

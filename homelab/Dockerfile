@@ -152,6 +152,11 @@ RUN cd /app/extensions/diagnostics-otel \
     && npm pkg delete devDependencies \
     && npm install --omit=dev --ignore-scripts
 
+# ── Lobster workflow CLI ──────────────────────────────────────────────────────
+# Install @clawdbot/lobster globally so the lobster plugin can invoke the
+# lobster CLI as a subprocess. Pinned to the version matching the plugin.
+RUN npm install -g @clawdbot/lobster
+
 # ── mcporter (MCP CLI client — list and call MCP tools like other CLI tools) ──
 # Installs mcporter globally, then generates /root/.mcporter/mcporter.json from
 # homelab/.mcp.json. jq converts Claude's format ({type,url}) to mcporter's
