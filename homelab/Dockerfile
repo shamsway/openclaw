@@ -134,6 +134,17 @@ COPY scripts ./scripts
 
 RUN pnpm install --frozen-lockfile
 
+# Optional Chromium + Xvfb install for browser automation workloads.
+# Build with: --build-arg OPENCLAW_INSTALL_BROWSER=1
+ARG OPENCLAW_INSTALL_BROWSER=""
+RUN if [ -n "$OPENCLAW_INSTALL_BROWSER" ]; then \
+      apt-get update && \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb && \
+      node /app/node_modules/playwright-core/cli.js install --with-deps chromium && \
+      apt-get clean && \
+      rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
+    fi
+
 COPY . .
 RUN pnpm build
 # Force pnpm for UI build (Bun may fail on ARM/Synology architectures)

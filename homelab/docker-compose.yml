@@ -27,7 +27,10 @@ services:
       # Build context is the repo root so COPY package.json etc. resolves correctly.
       context: ..
       dockerfile: homelab/Dockerfile
-    image: ${OPENCLAW_IMAGE}  # set in .env via OPENCLAW_REGISTRY/OPENCLAW_VERSION
+      args:
+        OPENCLAW_DOCKER_APT_PACKAGES: ${OPENCLAW_DOCKER_APT_PACKAGES}
+        OPENCLAW_INSTALL_BROWSER: ${OPENCLAW_INSTALL_BROWSER}
+    image: ${OPENCLAW_IMAGE} # set in .env via OPENCLAW_REGISTRY/OPENCLAW_VERSION
     environment:
       HOME: /home/node
       TERM: xterm-256color
