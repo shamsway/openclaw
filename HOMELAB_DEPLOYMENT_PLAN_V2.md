@@ -356,8 +356,8 @@ agent's `tools.alsoAllow` list.
   "id": "jerry",
   "tools": {
     "profile": "coding",
-    "alsoAllow": ["group:web", "message", "agents_list", "lobster", "llm-task"],
-    "deny": ["image", "browser", "canvas", "nodes", "cron", "gateway"]
+    "alsoAllow": ["group:web", "message", "agents_list", "lobster", "llm-task", "nodes"],
+    "deny": ["image", "browser", "canvas", "cron", "gateway"]
   }
 }
 ```
@@ -369,13 +369,13 @@ agent's `tools.alsoAllow` list.
   "id": "bobby",
   "tools": {
     "profile": "coding",
-    "alsoAllow": ["group:web", "group:sessions", "message", "agents_list", "lobster"],
-    "deny": ["write", "edit", "apply_patch", "browser", "canvas", "nodes", "cron", "gateway", "image"]
+    "alsoAllow": ["group:web", "group:sessions", "message", "agents_list", "lobster", "llm-task", "nodes"],
+    "deny": ["write", "edit", "apply_patch", "browser", "canvas", "cron", "gateway", "image"]
   }
 }
 ```
 
-**Billy** (scheduled tasks — lobster useful for pipelines):
+**Billy** (scheduled tasks — lobster useful for pipelines; no remote node yet):
 
 ```json
 {
@@ -387,6 +387,11 @@ agent's `tools.alsoAllow` list.
   }
 }
 ```
+
+> **Note on `nodes` tool:** `nodes` must be in `alsoAllow` (not just absent from `deny`) because it
+> is not part of the `coding` profile. Keeping `nodes` in the `deny` list silently blocks remote node
+> exec — the agent's `exec` calls fall back to local (gateway container) execution with no error.
+> Billy keeps `nodes` denied until a Billy remote node is deployed.
 
 After editing `openclaw.json`, restart to apply:
 
@@ -448,7 +453,7 @@ podman exec homelab_openclaw-gateway_1 lobster --version
 
 **Goal:** Verify agents can reach all deployed MCP servers and test remote node execution on Bobby/Billy hosts
 
-**Status:** 🔄 IN PROGRESS — next up
+**Status:** 🔄 IN PROGRESS — remote node exec validated; MCP rebuild and cron remain
 
 ---
 
@@ -558,9 +563,11 @@ podman exec homelab_openclaw-gateway_1 node openclaw.mjs approvals allowlist add
 - [ ] `homelab/.mcp.json` updated with all 4 internal MCP server URLs *(done — needs rebuild)*
 - [ ] Image rebuilt and pushed with updated mcporter config
 - [ ] Jerry agent can call `mcp-nomad-server`, `infra-mcp-server`, `tailscale-mcp-server` via mcporter
-- [ ] Bobby node container running on Bobby host and paired with Jerry gateway
+- [x] Bobby node container running on Bobby host and paired with Jerry gateway
 - [ ] Billy node container running on Billy host and paired with Jerry gateway
-- [ ] `openclaw nodes status` shows 2 connected nodes on Jerry
+- [x] `openclaw nodes status` shows Bobby connected (1/2 nodes)
+- [x] `nodes` tool enabled for Jerry and Bobby (removed from deny, added to alsoAllow)
+- [x] Remote tool execution validated: Jerry dispatched `uname -a` to Bobby Remote Node via `nodes` tool
 
 **Success Criteria:**
 
@@ -568,8 +575,9 @@ podman exec homelab_openclaw-gateway_1 node openclaw.mjs approvals allowlist add
 - ✅ Jerry can query Nomad job list via `mcp-nomad-server`
 - ✅ Jerry can query infra health via `infra-mcp-server`
 - ✅ Tailscale MCP tools respond correctly
-- ✅ Bobby and Billy node hosts connected and paired
-- ✅ Remote tool execution (e.g. `uname`) works via node hosts
+- ✅ Bobby node host connected and paired
+- ⏳ Billy node host connected and paired (not yet started)
+- ✅ Remote tool execution confirmed working: `uname -a` ran on Bobby Remote Node (not Jerry's container)
 
 ---
 
@@ -1715,6 +1723,24 @@ consul kv delete -recurse /openclaw/agents/
 
 ## Changelog
 
+### v2.6 (2026-02-17)
+
+- **Remote node exec validated:** Jerry successfully dispatched `uname -a` to Bobby Remote Node
+  via the `nodes` tool (`action: "run"`). Bobby's exec-approvals allowlist already had
+  `/usr/bin/uname` from prior CLI setup.
+- **Root cause documented:** The earlier test ("use exec on Bobby Remote Node") returned
+  Jerry's own container hostname (`aced7e8cca59`) because `nodes` was in Jerry's deny list.
+  Without `nodes`, the `exec` tool from the coding profile can only run locally in the gateway
+  container — no error, no warning, silent fallback to local.
+- **Fix — Jerry:** Removed `"nodes"` from deny, added `"nodes"` to `alsoAllow`. `nodes` is not
+  in the `coding` profile, so it must be explicitly added via `alsoAllow` and must not appear in
+  `deny`. Requires gateway restart (applied).
+- **Fix — Bobby:** Same change. Bobby as a monitoring agent benefits from being able to run
+  diagnostic commands directly on remote nodes.
+- **Billy unchanged:** `nodes` remains denied for Billy until a Billy remote node is deployed.
+- **Phase 1.5 Step 6 examples updated** to reflect correct `nodes`-inclusive config for Jerry and
+  Bobby. Added explanatory note on the silent local-fallback behavior when `nodes` is denied.
+
 ### v2.5 (2026-02-17)
 
 - **A2A verified:** Jerry → Bobby `sessions_spawn` confirmed working. Bobby ran in a subagent
@@ -1835,9 +1861,10 @@ consul kv delete -recurse /openclaw/agents/
 ---
 
 **Next Steps (Phase 1.75):**
-1. **Rebuild image** — picks up lobster CLI (`@clawdbot/lobster`) + updated MCP server URLs in mcporter config
-2. **Verify MCP tools** — test `mcp-nomad-server`, `infra-mcp-server`, `tailscale-mcp-server` via mcporter from inside container and via Jerry agent turn
-3. **Bring up remote nodes** — start Bobby/Billy node containers on their respective hosts, pair with Jerry gateway, verify `openclaw nodes status` shows both connected
-4. **Validate remote tool execution** — approve allowlist entries, confirm agents can dispatch tools to remote nodes
-5. **Add cron jobs** — Bobby heartbeat (`*/15 * * * *`) + Billy daily summary (`0 9 * * *`)
-6. **Deferred:** enable `diagnostics-otel` once OTel collector endpoint is known; enable `thread-ownership` once slack-forwarder is deployed
+1. ✅ ~~**Bring up Bobby remote node**~~ — Bobby Remote Node paired, connected, and exec validated
+2. ✅ ~~**Enable `nodes` tool for Jerry/Bobby**~~ — removed from deny, added to alsoAllow; gateway restarted
+3. **Rebuild image** — picks up lobster CLI (`@clawdbot/lobster`) + updated MCP server URLs in mcporter config
+4. **Verify MCP tools** — test `mcp-nomad-server`, `infra-mcp-server`, `tailscale-mcp-server` via mcporter from inside container and via Jerry agent turn
+5. **Bring up Billy remote node** — start Billy node container on Billy host, pair with Jerry gateway
+6. **Add cron jobs** — Bobby heartbeat (`*/15 * * * *`) + Billy daily summary (`0 9 * * *`)
+7. **Deferred:** enable `diagnostics-otel` once OTel collector endpoint is known; enable `thread-ownership` once slack-forwarder is deployed
