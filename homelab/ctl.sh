@@ -8,19 +8,28 @@
 #   ./homelab/ctl.sh <command> [args...]
 #
 # Commands:
-#   up       Start the gateway in the background (podman-compose up -d)
-#   down     Stop and remove containers
-#   logs     Follow gateway logs (podman-compose logs -f)
-#   build    Build the homelab image (tag from OPENCLAW_IMAGE / OPENCLAW_VERSION)
-#   push     Tag and push the image to OPENCLAW_REGISTRY (--tls-verify=false)
-#   pull     Pull the image from OPENCLAW_REGISTRY and tag it locally
-#   restart  Restart the gateway container
-#   ps       Show container status
-#   cli      Launch an interactive container with the openclaw alias configured
+#   up              Start the gateway in the background (podman-compose up -d)
+#   down            Stop and remove containers
+#   logs            Follow gateway logs (podman-compose logs -f)
+#   build           Build the homelab image (tag from OPENCLAW_IMAGE / OPENCLAW_VERSION)
+#   push            Tag and push the image to OPENCLAW_REGISTRY (--tls-verify=false)
+#   pull            Pull the image from OPENCLAW_REGISTRY and tag it locally
+#   restart         Restart the gateway container
+#   ps              Show container status
+#   cli             Launch an interactive container with the openclaw alias configured
+#   node-up <n>     Start remote node container (n = bobby | billy)
+#   node-down <n>   Stop and remove a remote node container
+#   node-restart <n> Restart a remote node container
+#   node-logs <n>   Follow logs for a remote node container
+#   node-ps         Show status of all remote node containers
 #
 # Registry workflow (multi-node lab):
-#   Build node:   ./homelab/ctl.sh build && ./homelab/ctl.sh push
-#   Remote nodes: ./homelab/ctl.sh pull && ./homelab/ctl.sh up
+#   Build node:       ./homelab/ctl.sh build && ./homelab/ctl.sh push
+#   Remote nodes:     ./homelab/ctl.sh pull  (then node-up on each remote host)
+#   Start bobby node: ./homelab/ctl.sh node-up bobby
+#
+# The remote node containers use the same OPENCLAW_IMAGE as the gateway, so
+# build/push/pull cover all containers — no separate node image is needed.
 #
 # OPENCLAW_REGISTRY defaults to registry.service.consul:8082 (insecure HTTP).
 # Set it in .env or export it before running this script.
@@ -39,6 +48,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 COMPOSE_FILES=(-f homelab/docker-compose.yml -f homelab/docker-compose.podman.yml)
+NODE_COMPOSE_FILE=homelab/docker-compose.remote-nodes.yml
 
 # Load .env if present so OPENCLAW_IMAGE / OPENCLAW_REGISTRY are available
 # when running push/pull outside of compose (compose loads .env itself).
@@ -145,13 +155,32 @@ RCEOF
       bash --rcfile /etc/openclaw.bashrc \
       "$@"
     ;;
+  node-up)
+    NODE="${1:?Usage: $0 node-up <bobby|billy>}"; shift
+    podman-compose -f "$NODE_COMPOSE_FILE" up -d "openclaw-node-${NODE}" "$@"
+    ;;
+  node-down)
+    NODE="${1:?Usage: $0 node-down <bobby|billy>}"; shift
+    podman-compose -f "$NODE_COMPOSE_FILE" down "openclaw-node-${NODE}" "$@"
+    ;;
+  node-restart)
+    NODE="${1:?Usage: $0 node-restart <bobby|billy>}"; shift
+    podman-compose -f "$NODE_COMPOSE_FILE" restart "openclaw-node-${NODE}" "$@"
+    ;;
+  node-logs)
+    NODE="${1:?Usage: $0 node-logs <bobby|billy>}"; shift
+    podman-compose -f "$NODE_COMPOSE_FILE" logs -f "openclaw-node-${NODE}" "$@"
+    ;;
+  node-ps)
+    podman-compose -f "$NODE_COMPOSE_FILE" ps "$@"
+    ;;
   help|--help|-h)
     sed -n '2,/^set /p' "$0" | grep '^#' | sed 's/^# \{0,1\}//'
     exit 0
     ;;
   *)
     echo "error: unknown command '${CMD}'" >&2
-    echo "Usage: $0 {up|down|logs|build|push|pull|restart|ps|cli}" >&2
+    echo "Usage: $0 {up|down|logs|build|push|pull|restart|ps|cli|node-up|node-down|node-restart|node-logs|node-ps}" >&2
     exit 1
     ;;
 esac

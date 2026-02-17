@@ -1,7 +1,7 @@
 # Legacy MCP Approach (Superseded)
 
 > **Superseded in session 5** — MCP tools are now accessed via the `mcporter` CLI
-> installed in the image. See `homelab/jerry/TOOLS.md` and Lesson 9 in
+> installed in the image. See `openclaw-agents/jerry/workspace/TOOLS.md` and Lesson 9 in
 > `HOMELAB_DEPLOYMENT_NOTES.md` for the current approach.
 >
 > This document preserves the original `--mcp-config` wiring for reference.

@@ -140,6 +140,18 @@ RUN pnpm build
 ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:build
 
+# ── Stock plugin dependencies ─────────────────────────────────────────────────
+# Some stock plugins ship as TypeScript source but have external npm deps that
+# are not part of the main pnpm workspace. Install them into each plugin's own
+# node_modules so they are available at runtime without a separate install step.
+# --ignore-scripts: skip lifecycle hooks for security; these are pure JS libs.
+RUN cd /app/extensions/memory-lancedb \
+    && npm pkg delete devDependencies \
+    && npm install --omit=dev --ignore-scripts
+RUN cd /app/extensions/diagnostics-otel \
+    && npm pkg delete devDependencies \
+    && npm install --omit=dev --ignore-scripts
+
 # ── mcporter (MCP CLI client — list and call MCP tools like other CLI tools) ──
 # Installs mcporter globally, then generates /root/.mcporter/mcporter.json from
 # homelab/.mcp.json. jq converts Claude's format ({type,url}) to mcporter's

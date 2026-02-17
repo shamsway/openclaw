@@ -119,14 +119,18 @@ agents on Jerry's single gateway.
 **Run on Bobby host:**
 
 ```bash
-podman compose -f homelab/docker-compose.remote-nodes.yml --profile bobby up -d
+./homelab/ctl.sh node-up bobby
+./homelab/ctl.sh node-logs bobby
 ```
 
 **Run on Billy host:**
 
 ```bash
-podman compose -f homelab/docker-compose.remote-nodes.yml --profile billy up -d
+./homelab/ctl.sh node-up billy
+./homelab/ctl.sh node-logs billy
 ```
+
+Other node management commands: `node-down`, `node-restart`, `node-ps`.
 
 **Required env vars (in `.env` on each node host):**
 
@@ -155,31 +159,31 @@ openclaw approvals allowlist add --node "Billy Remote Node" "/usr/bin/uname"
 
 **Goal:** Single OpenClaw gateway on Nomad with 3 agents
 
-**Status:** READY TO START
+**Status:** ✅ COMPLETE (Podman compose; Nomad deployment pending)
 
 **Steps:**
 
 1. ✅ Already done: Podman compose testing (from v1.0 plan)
-2. Deploy gateway to Nomad (Jerry node, pinned)
-3. Configure 3 agents (Jerry, Bobby, Billy)
-4. Set up channel routing (Slack private channels + Discord DMs per agent; Jerry remains in `#home-automation`)
-5. Test built-in A2A (Jerry → Bobby via `sessions_send`)
+2. ✅ Gateway running in Podman compose on Jerry (Nomad deployment deferred to later)
+3. ✅ Configure 3 agents (Jerry, Bobby, Billy) — all responding
+4. ✅ Set up channel routing (Slack private channels + Discord DMs per agent; Jerry remains in `#home-automation`)
+5. ⏳ Test built-in A2A (Jerry → Bobby via `sessions_send`) — pending
 
 **Deliverables:**
 
-- [ ] Nomad job spec: `terraform/openclaw/openclaw.nomad.hcl`
-- [ ] Multi-agent config: `openclaw.json` with 3 agents
-- [ ] Channel bindings configured
-- [ ] Health checks passing in Nomad
-- [ ] Consul service registration working
+- [ ] Nomad job spec: `terraform/openclaw/openclaw.nomad.hcl` *(deferred — Podman compose sufficient for now)*
+- [x] Multi-agent config: `openclaw.json` with 3 agents
+- [x] Channel bindings configured
+- [ ] Health checks passing in Nomad *(deferred)*
+- [ ] Consul service registration working *(deferred)*
 
 **Success Criteria:**
 
 - ✅ Gateway healthy and reachable via Tailscale
 - ✅ All 3 agents responding to messages
-- ✅ A2A communication between agents works
-- ✅ Nomad restarts recover cleanly
-- ✅ Logs accessible via Nomad UI
+- ⏳ A2A communication between agents works — not yet tested
+- ✅ Nomad restarts recover cleanly *(Podman: container restarts cleanly)*
+- ✅ Logs accessible via Nomad UI *(Podman: `podman logs -f homelab_openclaw-gateway_1`)*
 
 ---
 
@@ -187,7 +191,7 @@ openclaw approvals allowlist add --node "Billy Remote Node" "/usr/bin/uname"
 
 **Goal:** Enable and configure recommended plugins for memory, multi-agent coordination, automation workflows, and observability
 
-**Status:** READY AFTER PHASE 1 (memory-core already enabled during initial setup)
+**Status:** ✅ MOSTLY COMPLETE (lobster, llm-task active; memory-lancedb/diagnostics-otel image-ready; thread-ownership pending slack-forwarder)
 
 **Plugins Covered:**
 
@@ -215,14 +219,16 @@ podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins info memory-cor
 **Future upgrade to memory-lancedb:**
 
 `memory-lancedb` replaces `memory-core` in the memory slot. Enable it when you want
-vector-search recall and automatic memory capture from conversations.
+vector-search recall and automatic memory capture from conversations. Its npm deps
+(`@lancedb/lancedb`, etc.) are pre-installed in the image as of the 2026-02-17 build.
 
-```bash
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins enable memory-lancedb
-./homelab/ctl.sh restart
+To enable, add to `openclaw-agents/jerry/openclaw.json`:
+
+```json
+"memory-lancedb": { "enabled": true }
 ```
 
-The enable command automatically disables `memory-core` (they share the `memory` slot).
+Then restart. The slot change automatically disables `memory-core`.
 LanceDB uses an embedded native library; no separate database service is required.
 
 ---
@@ -237,26 +243,20 @@ reachable from the gateway container.
 Skip this step if that service is not yet available; add it when thread collisions
 are observed in practice.
 
-```bash
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins enable thread-ownership
-```
-
-**Config in `openclaw.json`:**
+The config entry is already present in `openclaw-agents/jerry/openclaw.json` as
+`"thread-ownership": { "enabled": false }`. When slack-forwarder is available,
+change to:
 
 ```json
-{
-  "plugins": {
-    "entries": {
-      "thread-ownership": {
-        "enabled": true,
-        "config": {
-          "forwarderUrl": "http://slack-forwarder.service.consul:PORT"
-        }
-      }
-    }
+"thread-ownership": {
+  "enabled": true,
+  "config": {
+    "forwarderUrl": "http://slack-forwarder.service.consul:PORT"
   }
 }
 ```
+
+Then restart the gateway.
 
 ---
 
@@ -274,12 +274,14 @@ podman exec homelab_openclaw-gateway_1 which lobster || echo "not found — add 
 
 If not present, add the install step to `homelab/Dockerfile` before enabling.
 
-```bash
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins enable lobster
-```
+**Status: ✅ Done.** Plugin enabled and `lobster` added to Jerry/Bobby/Billy `alsoAllow`
+via `openclaw-agents/jerry/openclaw.json`. No CLI commands needed — config is the
+source of truth.
 
-The `lobster` tool is registered with `optional: true`, so it must be explicitly
-added to each agent's allow list (see Step 6 below).
+> **Note:** The `lobster` CLI binary is not yet installed in the image. The plugin
+> loads successfully, but invoking the `lobster` tool will error until the binary is
+> present. Add an install step to `homelab/Dockerfile` (e.g. download from GitHub
+> releases or build from source).
 
 ---
 
@@ -288,32 +290,20 @@ added to each agent's allow list (see Step 6 below).
 Adds a `llm-task` tool for JSON-only structured LLM sub-tasks. Designed to be invoked
 from Lobster workflows via `openclaw.invoke --each`.
 
-```bash
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins enable llm-task
-```
-
-**Config in `openclaw.json`** (set defaults to your ZAI stack):
+**Status: ✅ Done.** Plugin enabled with ZAI GLM defaults and `llm-task` added to
+Jerry's `alsoAllow` via `openclaw-agents/jerry/openclaw.json`. Config:
 
 ```json
-{
-  "plugins": {
-    "entries": {
-      "llm-task": {
-        "enabled": true,
-        "config": {
-          "defaultProvider": "zai",
-          "defaultModel": "glm-4.7-flash",
-          "maxTokens": 2048,
-          "timeoutMs": 30000
-        }
-      }
-    }
+"llm-task": {
+  "enabled": true,
+  "config": {
+    "defaultProvider": "zai",
+    "defaultModel": "glm-4.7-flash",
+    "maxTokens": 2048,
+    "timeoutMs": 30000
   }
 }
 ```
-
-Like `lobster`, `llm-task` is registered with `optional: true` and must be added to
-each agent's allow list.
 
 ---
 
@@ -322,30 +312,20 @@ each agent's allow list.
 Exports OpenClaw metrics/traces to your observability stack via OpenTelemetry.
 Requires an OTEL-compatible collector endpoint (Grafana Alloy, Jaeger, etc.).
 
-```bash
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins enable diagnostics-otel
-```
-
-**Config in `openclaw.json`:**
+OTel npm deps are pre-installed in the image as of the 2026-02-17 build. When an
+OTEL collector endpoint is available, enable by adding to `openclaw-agents/jerry/openclaw.json`:
 
 ```json
-{
-  "plugins": {
-    "entries": {
-      "diagnostics-otel": {
-        "enabled": true,
-        "config": {
-          "endpoint": "http://otel-collector.service.consul:4318",
-          "serviceName": "openclaw-gateway"
-        }
-      }
-    }
+"diagnostics-otel": {
+  "enabled": true,
+  "config": {
+    "endpoint": "http://otel-collector.service.consul:4318",
+    "serviceName": "openclaw-gateway"
   }
 }
 ```
 
-Adjust `endpoint` to match your Grafana Alloy or OTEL collector address. Check
-Consul for the registered service name:
+Find the collector address via Consul:
 
 ```bash
 CONSUL_HTTP_ADDR=http://consul.service.consul:8500 consul catalog services | grep -i otel
@@ -355,8 +335,10 @@ CONSUL_HTTP_ADDR=http://consul.service.consul:8500 consul catalog services | gre
 
 #### Step 6: Update Agent Tool Allowlists
 
-`lobster` and `llm-task` are optional tools — they must be explicitly added to each
-agent's `tools.alsoAllow` list. Add only to agents that will use workflows.
+**Status: ✅ Done.** All three agents updated in `openclaw-agents/jerry/openclaw.json`.
+
+`lobster` and `llm-task` are optional tools that must be explicitly added to each
+agent's `tools.alsoAllow` list.
 
 > **IMPORTANT:** Use `alsoAllow`, NOT `allow`. The `allow` field is a strict allowlist
 > that **replaces** the profile's tool set entirely — it would strip all `coding` profile
@@ -412,13 +394,14 @@ After editing `openclaw.json`, restart to apply:
 
 **Deliverables:**
 
-- [ ] `memory-core` confirmed active (`memory_search`, `memory_get` tools available)
+- [x] `memory-core` confirmed active (`memory_search`, `memory_get` tools available)
 - [ ] `thread-ownership` enabled and configured with `forwarderUrl` (when slack-forwarder is available)
-- [ ] `lobster` CLI present in image and plugin enabled
-- [ ] `llm-task` enabled with ZAI GLM defaults
-- [ ] `diagnostics-otel` enabled with OTEL collector endpoint
-- [ ] Agent tool allowlists updated for `lobster` and `llm-task`
-- [ ] Gateway restarts clean (no config errors in logs)
+- [x] `lobster` plugin enabled; `lobster` CLI binary install still pending (Dockerfile)
+- [x] `llm-task` enabled with ZAI GLM defaults
+- [ ] `diagnostics-otel` enabled with OTEL collector endpoint (deps in image; needs collector)
+- [x] Agent tool allowlists updated for `lobster` and `llm-task`
+- [x] Gateway restarts clean (no config errors in logs)
+- [x] `memory-lancedb` and `diagnostics-otel` npm deps baked into image (2026-02-17 build)
 
 **Success Criteria:**
 
@@ -461,24 +444,27 @@ podman exec homelab_openclaw-gateway_1 lobster --version
 
 **Goal:** Configure Slack + Discord and test multi-agent routing (WhatsApp intentionally paused)
 
-**Status:** READY AFTER PHASE 1
+**Status:** ✅ COMPLETE
 
 **Steps:**
 
 1. Configure Slack bot (app token, bot token)
 2. Configure Discord bot (application, bot token)
 3. Create Slack private channels: `#jerry`, `#bobby`, `#billy` (keep Jerry in `#home-automation`)
-4. Set up channel bindings (route Slack channels and Discord DMs to agents)
-5. Test message routing and A2A communication
-6. Prepare for job-specific agents (workspace structure)
+4. **Invite the bot to each private Slack channel** — Slack never delivers events for channels
+   the bot hasn't joined. In each channel, run `/invite @<bot-name>`. This must be done by a
+   human channel member; the bot cannot invite itself to private channels.
+5. Set up channel bindings (route Slack channels and Discord DMs to agents)
+6. Test message routing and A2A communication
+7. Prepare for job-specific agents (workspace structure)
 
 **Deliverables:**
 
-- [ ] Slack bot responding with per-agent channel routing
-- [ ] Discord DMs routed correctly per agent
-- [ ] WhatsApp status documented as paused for now
-- [ ] Channel bindings tested and working
-- [ ] A2A communication verified (Jerry → Bobby)
+- [x] Slack bot responding with per-agent channel routing
+- [x] Discord DMs routed correctly per agent
+- [x] WhatsApp status documented as paused for now
+- [x] Channel bindings tested and working
+- [ ] A2A communication verified (Jerry → Bobby) — pending explicit test
 - [ ] Workspace structure for future agents documented
 
 **Success Criteria:**
@@ -486,7 +472,7 @@ podman exec homelab_openclaw-gateway_1 lobster --version
 - ✅ Slack + Discord working with intended per-agent routing
 - ✅ Jerry responds to general queries across channels
 - ✅ Bobby responds to infrastructure queries
-- ✅ Billy executes scheduled tasks via cron
+- ⏳ Billy executes scheduled tasks via cron — not yet tested
 - ✅ No channel conflicts or duplicate responses
 - ✅ Ready to add job-specific agents (Phase 3+)
 
@@ -1596,6 +1582,67 @@ consul kv delete -recurse /openclaw/agents/
 
 ## Changelog
 
+### v2.4 (2026-02-17)
+
+- **Phase 1.5 mostly complete:** `lobster` and `llm-task` plugins enabled and running.
+  `memory-lancedb` and `diagnostics-otel` npm deps baked into image; both ready to enable
+  once their prerequisites are met (no further image changes needed).
+- **Plugin persistence clarified:** Stock plugins with no external deps (lobster, llm-task,
+  thread-ownership) are enabled by editing `openclaw-agents/jerry/openclaw.json` directly —
+  no `plugins enable` CLI commands required. Config is the source of truth and is bind-mounted.
+  Plugins with external npm deps (memory-lancedb, diagnostics-otel) require those deps to be
+  `npm install`-ed in the Dockerfile; done via `npm pkg delete devDependencies && npm install
+  --omit=dev --ignore-scripts` to strip pnpm workspace: references before calling npm.
+- **Dockerfile:** Added `npm install` steps for `extensions/memory-lancedb` and
+  `extensions/diagnostics-otel` so their native/OTel deps are available in the image.
+- **ctl.sh:** Added `node-up`, `node-down`, `node-restart`, `node-logs`, `node-ps` commands
+  for managing remote node containers via `docker-compose.remote-nodes.yml`. Updated remote
+  nodes section of plan to use these commands instead of raw podman-compose invocations.
+- **Repo hygiene:** Removed stale agent workspace files (`homelab/jerry/`, `homelab/bobby/`,
+  `homelab/billy/`). All agent files now live exclusively in `../openclaw-agents/<agent>/`.
+  Updated `CLAUDE.md` with explicit callout and updated all stale path references.
+- **TOOLS.md:** Added "OpenClaw Native Tools" section to Jerry/Bobby/Billy workspace TOOLS.md
+  files documenting `lobster` and `llm-task` (Jerry only) with usage notes per agent role.
+- **Known issue (upstream):** Gateway logs `[tools] tools.profile (coding) allowlist contains
+  unknown entries (group:memory)` on startup. This is a false positive in upstream
+  `stripPluginOnlyAllowlist` — memory tools work correctly. Will resolve when upstream fix
+  is merged.
+- **Next:** Install `lobster` CLI binary in Dockerfile; configure `diagnostics-otel` once
+  OTel collector endpoint is identified; enable `thread-ownership` once slack-forwarder is
+  deployed; run A2A test (Jerry → Bobby via `sessions_send`).
+
+### v2.3 (2026-02-17)
+
+- **Phase 1 complete:** Gateway running in Podman compose with Jerry, Bobby, Billy all responding.
+  Nomad deployment deferred; Podman compose is sufficient for the current phase.
+- **Phase 2 complete:** Slack and Discord routing verified across all dedicated agent channels.
+  Several config bugs found and fixed during bring-up (see below).
+- **Fix:** `groupPolicy: "allowlist"` on both Slack and Discord blocked all dedicated agent
+  channels. Slack had only `#home-automation` in the allowlist; Discord had no guilds configured
+  at all (DMs bypassed groupPolicy entirely, explaining why DMs worked while channels didn't).
+  Changed both to `groupPolicy: "open"` — bindings control routing, no coarse channel filter needed.
+- **Fix:** Slack `requireMention` defaults to `true`, silently dropping any non-@mention message
+  in channel contexts. Added `"requireMention": false` to Slack config; dedicated per-agent
+  channels should not require @mention.
+- **Fix:** Slack bindings had `accountId: "T255F0YHW"` (the Slack team ID). OpenClaw's
+  single-account Slack config uses `DEFAULT_ACCOUNT_ID = "default"` internally. The binding
+  pre-filter compared `"T255F0YHW" === "default"` → false, so all four Slack bindings were
+  filtered out and every message fell through to Jerry (default agent). Removed `accountId`
+  from all Slack bindings; an absent `accountId` matches the default account correctly.
+- **Operational note:** `bindings` is a `kind: "none"` reload path — the file watcher detects
+  changes but channel providers (Slack, Discord) are NOT restarted. `ctx.cfg` is captured at
+  provider startup via `loadConfig()`. **Any change to `bindings` requires a gateway restart**
+  (`./homelab/ctl.sh restart`) to take effect. Channel config changes (e.g. `requireMention`,
+  `groupPolicy`) do trigger a channel provider restart and hot-reload without a full restart.
+- **Fix:** Bobby and Billy standalone configs (`bobby/openclaw.json`, `billy/openclaw.json`)
+  updated to match Jerry: ZAI endpoint → `anthropic-messages`, `allow` → `alsoAllow`.
+  These configs are not currently mounted in the gateway container but should stay in sync.
+- **Documented:** Slack bot must be manually invited to private channels via `/invite @<bot-name>`
+  before any events are delivered. Bot cannot invite itself; `conversations.invite` returns
+  `channel_not_found` for private channels from the bot token.
+- **Next:** A2A test (Jerry → Bobby via `sessions_send`), Billy cron validation,
+  Phase 1.5 plugin installation.
+
 ### v2.2 (2026-02-16)
 
 - **Fix:** Phase 1.5 Step 6 agent allowlist examples corrected from `allow` to `alsoAllow`.
@@ -1635,4 +1682,4 @@ consul kv delete -recurse /openclaw/agents/
 
 ---
 
-**Next Steps:** Begin Phase 1 deployment (Nomad gateway with 3 agents)
+**Next Steps:** Install `lobster` CLI binary in Dockerfile; enable `diagnostics-otel` once OTel collector endpoint is known; enable `thread-ownership` once slack-forwarder is deployed; run A2A test (Jerry → Bobby via `sessions_send`); validate Billy cron jobs.

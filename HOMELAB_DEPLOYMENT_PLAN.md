@@ -147,7 +147,7 @@ runs Tailscale, so the container inherits network connectivity automatically
 (Podman uses host networking or bridges through). The `tailscale` binary can
 be installed for status queries, but it needs access to the host daemon socket
 (`-v /var/run/tailscale:/var/run/tailscale`). The simpler alternative is using
-the Tailscale MCP server (listed in `homelab/jerry/TOOLS.md`).
+the Tailscale MCP server (listed in `openclaw-agents/jerry/workspace/TOOLS.md`).
 
 ### Runtime Environment Variables
 

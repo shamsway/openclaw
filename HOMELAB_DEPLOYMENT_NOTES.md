@@ -34,7 +34,7 @@
   from root `.mcp.json` used by Claude Code); `jq` transform at build time converts
   it to mcporter's format
 - Archived old `--mcp-config` approach to `homelab/mcp-legacy.md`
-- Updated Lesson 9 and `homelab/jerry/TOOLS.md` with mcporter workflow
+- Updated Lesson 9 and `openclaw-agents/jerry/workspace/TOOLS.md` with mcporter workflow
 - Implemented and validated: `mcporter list context7` and tool calls working in container
 
 ## Progress — Session 4 (2026-02-12)

@@ -3,6 +3,12 @@
 This repo is the OpenClaw source code. The **running homelab deployment** lives in a
 separate agent-config repo at `/opt/homelab/data/home/git/openclaw-agents` (branch `main`).
 
+> **Agent files are NOT in this repo.**
+> Workspace files (TOOLS.md, SOUL.md, IDENTITY.md, etc.) and `openclaw.json` for
+> Jerry, Bobby, and Billy live exclusively in `../openclaw-agents/<agent>/`.
+> The `homelab/jerry/`, `homelab/bobby/`, `homelab/billy/` directories have been
+> removed. Do not recreate them here.
+
 ---
 
 ## Homelab Deployment Quick Reference
@@ -13,6 +19,7 @@ separate agent-config repo at `/opt/homelab/data/home/git/openclaw-agents` (bran
 | Image | `registry.service.consul:8082/openclaw-homelab:2026.2.13` |
 | Gateway port | `18789` (webchat UI at `http://localhost:18789`) |
 | Agent config repo | `/opt/homelab/data/home/git/openclaw-agents` (branch `main`) |
+| Agent workspace files | `../openclaw-agents/<agent>/workspace/` (TOOLS.md, SOUL.md, etc.) |
 | Agent config inside container | `/home/node/.openclaw/openclaw.json` (mounted from host) |
 | Gateway management | `homelab/ctl.sh {up|down|restart|logs|ps|cli}` |
 
