@@ -16,12 +16,14 @@ separate agent-config repo at `/opt/homelab/data/home/git/openclaw-agents` (bran
 | Item | Value |
 |---|---|
 | Running container | `homelab_openclaw-gateway_1` |
-| Image | `registry.service.consul:8082/openclaw-homelab:2026.2.13` |
+| Image | `registry.service.consul:8082/openclaw-homelab:2026.2.16` |
 | Gateway port | `18789` (webchat UI at `http://localhost:18789`) |
 | Agent config repo | `/opt/homelab/data/home/git/openclaw-agents` (branch `main`) |
 | Agent workspace files | `../openclaw-agents/<agent>/workspace/` (TOOLS.md, SOUL.md, etc.) |
 | Agent config inside container | `/home/node/.openclaw/openclaw.json` (mounted from host) |
+| mcporter config (persisted) | `../openclaw-agents/jerry/mcporter.json` → `/root/.mcporter/mcporter.json` |
 | Gateway management | `homelab/ctl.sh {up|down|restart|logs|ps|cli}` |
+| DNS reference | `homelab/NETWORKING.md` |
 
 ---
 
@@ -48,6 +50,158 @@ podman exec homelab_openclaw-gateway_1 node openclaw.mjs agents list
 
 # Config validation
 podman exec homelab_openclaw-gateway_1 node openclaw.mjs models status --agent jerry
+```
+
+---
+
+## Cron Command Reference
+
+```bash
+# List all cron jobs with status and next/last run times
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron list
+
+# Show run history for a job (--id required)
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron runs --id <job-id>
+
+# Trigger a job immediately (debug mode — bypasses schedule)
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron run <job-id>
+
+# Add a repeating job:
+#   --cron       5-field cron expression (*/15 * * * *)
+#   --agent      agent ID (bobby, billy, jerry)
+#   --announce   post summary to a channel when done
+#   --channel    channel name (discord, slack)
+#   --to         delivery target: "channel:<id>" or "user:<id>"
+#   --session    isolated (default for cron) or main
+#   --wake       now (resume/create immediately) or next-heartbeat
+#   --best-effort-deliver  don't mark job as error if Discord/Slack delivery fails
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron add \
+  --name "Bobby heartbeat" \
+  --cron "*/15 * * * *" \
+  --agent bobby \
+  --announce --channel discord --to "channel:1472975617111625902" \
+  --session isolated --wake now \
+  --best-effort-deliver \
+  -- "Run your full heartbeat checklist from HEARTBEAT.md..."
+
+# Edit an existing job (patch specific fields)
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron edit --id <job-id> \
+  --name "New name"
+
+# Disable/enable/remove
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron disable <job-id>
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron enable <job-id>
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron rm <job-id>
+
+# View scheduler status
+podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron status
+```
+
+**Cron run history lives at:** `openclaw-agents/jerry/cron/runs/<job-id>.jsonl`
+Each entry contains `status`, `error`, `summary`, `usage` (token counts), and `sessionId`.
+
+**Cron jobs file:** `openclaw-agents/jerry/cron/jobs.json`
+The `state.consecutiveErrors` counter indicates how many consecutive failures a job has.
+
+---
+
+## MCP Server Management (mcporter)
+
+### Verifying MCP servers from inside the container
+
+```bash
+# List tools for a specific MCP server (use --allow-http for internal HTTP endpoints)
+podman exec homelab_openclaw-gateway_1 \
+  mcporter list --http-url http://192.168.252.8:30859/mcp --allow-http --name mcp-nomad-server
+
+# Test all configured MCP servers (reads /root/.mcporter/mcporter.json)
+podman exec homelab_openclaw-gateway_1 cat /root/.mcporter/mcporter.json
+
+# Call an MCP tool directly (useful for debugging)
+podman exec homelab_openclaw-gateway_1 \
+  mcporter call 'http://192.168.252.8:30859/mcp.list_jobs()' --allow-http
+
+# GCP VM status check (useful for Phil keeper debugging)
+podman exec homelab_openclaw-gateway_1 \
+  mcporter call 'http://gcp-mcp-server.service.consul:22241/mcp.list_vms(project_id:"octant-426722", zone:"us-central1-a")' --allow-http
+
+# GCP VM start (Phil keeper — use when Phil is TERMINATED)
+podman exec homelab_openclaw-gateway_1 \
+  mcporter call 'http://gcp-mcp-server.service.consul:22241/mcp.start_vm(instance_name:"phil", project_id:"octant-426722", zone:"us-central1-a")' --allow-http
+
+# Tailscale device list
+podman exec homelab_openclaw-gateway_1 \
+  mcporter call 'http://192.168.252.6:29178/mcp.list_devices()' --allow-http
+```
+
+### Persisting mcporter config (avoiding image rebuilds)
+
+The mcporter config is mounted into the container from the agent config repo:
+
+```
+openclaw-agents/jerry/mcporter.json → /root/.mcporter/mcporter.json (via volume mount)
+```
+
+The source of truth for MCP server URLs is `homelab/.mcp.json`. When you add or
+change an MCP server there, regenerate `jerry/mcporter.json`:
+
+```bash
+jq '{mcpServers:(.mcpServers|to_entries|map({key,value:{baseUrl:.value.url}})|from_entries)}' \
+  homelab/.mcp.json > ../openclaw-agents/jerry/mcporter.json
+```
+
+Then restart the container to pick up the change:
+```bash
+./homelab/ctl.sh restart
+```
+
+If you need to patch the running container without a restart (e.g. for a quick fix):
+```bash
+# Generate correct file and copy into container
+jq '{mcpServers:(.mcpServers|to_entries|map({key,value:{baseUrl:.value.url}})|from_entries)}' \
+  homelab/.mcp.json > /tmp/mcporter-new.json
+podman cp /tmp/mcporter-new.json homelab_openclaw-gateway_1:/root/.mcporter/mcporter.json
+# NOTE: this is ephemeral — update jerry/mcporter.json for persistence
+```
+
+**The Dockerfile still generates mcporter.json at build time from `.mcp.json`** (as a
+fallback when no volume is mounted). Keep both in sync.
+
+---
+
+## Container Config Persistence
+
+Files that live in the container image but need to survive restarts are mounted as
+volumes from `openclaw-agents/jerry/`. Current persistent overrides:
+
+| Container path | Host path | Purpose |
+|---|---|---|
+| `/home/node/.openclaw/` | `openclaw-agents/jerry/` | All agent config, sessions, cron |
+| `/home/node/.openclaw/workspace` | `openclaw-agents/jerry/workspace/` | Jerry workspace files |
+| `/home/node/.openclaw/workspace-bobby` | `openclaw-agents/bobby/workspace/` | Bobby workspace |
+| `/home/node/.openclaw/workspace-billy` | `openclaw-agents/billy/workspace/` | Billy workspace |
+| `/root/.mcporter/mcporter.json` | `openclaw-agents/jerry/mcporter.json` | MCP server URLs |
+
+When adding a new baked-in config that needs to persist: create the file in the
+appropriate `openclaw-agents/<agent>/` directory and add a volume mount in
+`homelab/docker-compose.yml`.
+
+---
+
+## Consul DNS (Container Networking)
+
+Consul DNS works natively inside the container via:
+```
+container → aardvark-dns (10.89.2.1) → host dnsmasq → Consul :8600
+```
+
+No `extra_hosts` or workarounds required. See `homelab/NETWORKING.md` for full details,
+verification commands, and the Podman 5.x migration path.
+
+Quick verify:
+```bash
+podman exec homelab_openclaw-gateway_1 nslookup nomad.service.consul
+# Should return 2-3 IP addresses
 ```
 
 ---
@@ -105,6 +259,48 @@ filtered out.
 almost always use `alsoAllow` for extras.
 
 **Where:** `openclaw-agents/jerry/openclaw.json` → `agents.list[*].tools`
+
+---
+
+### Cron Jobs Showing `error` with "cron announce delivery failed"
+
+**Symptom:** `cron list` shows `error` status and `consecutiveErrors > 0`. The run JSONL
+shows complete, valid summaries — only the Discord/Slack delivery step failed.
+
+**Root cause:** Transient Discord API failures or rate limiting. The agent run itself
+succeeds; only the post-run channel announcement fails. Historical rate: ~30% on busy
+days.
+
+**Fix (preventive):** Add `--best-effort-deliver` when creating cron jobs. This marks
+the job as `ok` even if delivery fails, and logs the delivery error separately:
+```bash
+node openclaw.mjs cron add ... --best-effort-deliver -- "message"
+```
+
+**Fix (reactive):** A container restart often clears stuck delivery state. After restart,
+check if the next scheduled run succeeds with `cron list`.
+
+**Note:** Even when delivery fails, the full summary is stored in the JSONL run history
+at `openclaw-agents/jerry/cron/runs/<job-id>.jsonl`.
+
+---
+
+### Bobby Can't Check Phil via GCP/Tailscale MCP
+
+**Symptom:** Bobby heartbeat reports "Monitoring tools not accessible via mcporter" for
+Tailscale and GCP servers. Phil keeper falls back to `manual_review` even when Phil is
+actually down.
+
+**Root cause:** The image was built with a stale `mcporter.json` (missing `gcp-mcp-server`,
+wrong port for `tailscale-mcp-server`). This is now fixed: `jerry/mcporter.json` is
+mounted as a volume and takes precedence over the baked-in version.
+
+**Verify fix is active:**
+```bash
+podman exec homelab_openclaw-gateway_1 cat /root/.mcporter/mcporter.json
+# Should show 5 servers: context7, mcp-nomad-server, infra-mcp-server,
+# tailscale-mcp-server (port 29178), gcp-mcp-server
+```
 
 ---
 
@@ -174,12 +370,30 @@ import json,sys; d=json.load(sys.stdin)
 
 ---
 
-## Hot-Reload
+## Hot-Reload and Restart Guidance
 
 Changes to `models.providers.*` in `openclaw.json` are picked up without a gateway
 restart (hot-reload is active). Changes to `agents.list[*].tools` or `plugins.*`
-require a restart:
+require a restart.
+
+**Use `ctl.sh restart` for config-only changes (no new volume mounts):**
 
 ```bash
-./homelab/ctl.sh restart
+./homelab/ctl.sh restart   # uses podman restart — safe for DNS
 ```
+
+`ctl.sh restart` calls `podman restart` directly, which does an atomic stop+start
+without disrupting the aardvark-dns DNS process. Both `podman-compose restart` and
+`ctl.sh down && ctl.sh up` can break Consul DNS in Podman 4.x.
+
+**When you must use `down && up`** (e.g. to activate a new volume mount in
+docker-compose.yml), verify DNS and fix if needed:
+
+```bash
+./homelab/ctl.sh down && ./homelab/ctl.sh up
+sleep 2
+podman exec homelab_openclaw-gateway_1 nslookup nomad.service.consul
+# If NXDOMAIN: podman restart homelab_openclaw-gateway_1
+```
+
+See `homelab/NETWORKING.md` for full details on the aardvark-dns restart quirk.

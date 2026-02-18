@@ -14,7 +14,7 @@
 #   build           Build the homelab image (tag from OPENCLAW_IMAGE / OPENCLAW_VERSION)
 #   push            Tag and push the image to OPENCLAW_REGISTRY (--tls-verify=false)
 #   pull            Pull the image from OPENCLAW_REGISTRY and tag it locally
-#   restart         Restart the gateway container
+#   restart         Restart the gateway container (uses podman restart to preserve DNS)
 #   ps              Show container status
 #   cli             Launch an interactive container with the openclaw alias configured
 #   node-up <n>     Start remote node container (n = bobby | billy)
@@ -114,7 +114,13 @@ case "$CMD" in
     podman tag "$REMOTE" "$LOCAL"
     ;;
   restart)
-    podman-compose "${COMPOSE_FILES[@]}" restart "$@"
+    # Use `podman restart` (not podman-compose restart) to preserve aardvark-dns.
+    # In Podman 4.x, podman-compose stop+start kills the aardvark-dns process and it
+    # does not reliably restart, breaking Consul DNS inside the container.
+    # `podman restart` does an atomic stop+start without disrupting aardvark-dns.
+    CONTAINER_NAME="homelab_openclaw-gateway_1"
+    echo "Restarting ${CONTAINER_NAME} (via podman restart to preserve DNS)..."
+    podman restart -t 10 "$CONTAINER_NAME" "$@"
     ;;
   ps|status)
     podman-compose "${COMPOSE_FILES[@]}" ps

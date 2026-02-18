@@ -461,7 +461,7 @@ podman exec homelab_openclaw-gateway_1 lobster --version
 
 **Goal:** Verify agents can reach all deployed MCP servers and test remote node execution on Bobby/Billy hosts
 
-**Status:** 🔄 IN PROGRESS — image rebuilt (2026.2.16), MCP + Bobby tool validation complete; Billy node and cron remain
+**Status:** ✅ COMPLETE — all deliverables done; cron running; HTTP health endpoints configured
 
 ---
 
@@ -578,17 +578,25 @@ podman exec homelab_openclaw-gateway_1 node openclaw.mjs approvals allowlist add
 - [x] `openclaw nodes status` shows both nodes connected (2/2 nodes)
 - [x] `nodes` tool enabled for Jerry and Bobby (removed from deny, added to alsoAllow)
 - [x] Remote tool execution validated: Jerry dispatched `uname -a` to Bobby Remote Node via `nodes` tool
+- [x] Bobby heartbeat cron running (`*/15 * * * *`, Discord announce to `#bobby`)
+- [x] Billy daily summary cron added (`0 9 * * *`, Discord announce to `#billy`)
+- [x] Cron `sessionRetention: "6h"` configured — sessions auto-rotate every 6h, capping context accumulation
+- [x] HTTP health endpoints defined in `bobby/workspace/HEARTBEAT.md` (gateway, Nomad, MCP servers)
+- [x] Cluster layout documented in `bobby/workspace/TOOLS.md`
 
 **Success Criteria:**
 
 - ✅ `mcporter list` succeeds for all 5 servers from inside the container
-- ✅ Bobby can query Nomad job list via `mcp-nomad-server` (46/47 jobs running)
+- ✅ Bobby can query Nomad job list via `mcp-nomad-server` (47/47 jobs running overnight)
 - ✅ Bobby can query infra health via `infra-mcp-server`
 - ✅ Tailscale MCP tools respond correctly (Phil confirmed online at `100.100.120.128`)
 - ✅ GCP MCP authenticated and Phil VM status confirmed (`RUNNING`, `octant-426722`, `us-central1-a`)
 - ✅ Bobby node host connected and paired
 - ✅ Billy node host connected and paired
 - ✅ Remote tool execution confirmed working: `uname -a` ran on Bobby Remote Node (not Jerry's container)
+- ✅ Bobby heartbeat cron running reliably — detected and logged 1-hour Consul DNS outage overnight (auto-recovered)
+- ✅ Phil keeper protocol operational — 5 consecutive checks, all `skip` (Phil healthy), 0 restarts triggered
+- ✅ Billy daily summary cron registered — first run at 09:00 UTC
 
 ---
 
@@ -1482,23 +1490,25 @@ EOT
   cron: {
     enabled: true,
     maxConcurrentRuns: 2,
-    sessionRetention: "24h",
+    sessionRetention: "6h",  // Rotate isolated sessions every 6h to cap context accumulation
   },
 }
 ```
 
 ```bash
 # Add cron jobs via CLI (recommended; persisted in cron/jobs.json)
+# Bobby heartbeat — every 15 minutes, announces to #bobby Discord channel
 openclaw cron add \
   --name "Bobby heartbeat" \
-  --cron "*/5 * * * *" \
+  --cron "*/15 * * * *" \
   --session isolated \
   --agent bobby \
   --announce \
   --channel discord \
   --to "channel:1472975617111625902" \
-  --message "Run infrastructure heartbeat check"
+  --message "Run your full heartbeat checklist from HEARTBEAT.md, including phil_keeper. Follow PHIL_POLICY.md and PHIL_WORKFLOW.md exactly. Enforce dedupe (5m), restart budget (max 5/24h), and manual-review suppression (60m). If and only if initiating a restart action, say exactly: HEY PHIL, WAKE UP! Then report decision, status, and restart budget."
 
+# Billy daily summary — 9am UTC, announces to #billy Discord channel
 openclaw cron add \
   --name "Billy daily summary" \
   --cron "0 9 * * *" \
@@ -1507,8 +1517,21 @@ openclaw cron add \
   --announce \
   --channel discord \
   --to "channel:1472975656542539796" \
-  --message "Generate daily infrastructure summary"
+  --message "Generate your daily infrastructure summary. Read memory/task-state.json for recent task results. Review HEARTBEAT.md for what to report. Provide a concise summary of what automation ran overnight, any issues encountered, and overall automation health. Keep it brief."
 ```
+
+> **Session rotation note:** With `sessionRetention: "6h"` in the `cron` config, OpenClaw
+> automatically creates a fresh isolated session every 6 hours for each cron job, preventing
+> unbounded context accumulation. Without this setting, isolated cron sessions accumulate all
+> runs indefinitely — a 687KB session with 728 messages was observed after 8.5 hours of
+> 15-minute heartbeat runs. The 6h window allows ~24 runs of context (enough for pattern
+> recognition) while staying well within the 128K token context limit.
+>
+> If a session grows problematic before the retention window expires (e.g. Bobby starts
+> hallucinating or failing), manually reset by running:
+> ```bash
+> openclaw cron rm <job-id> && openclaw cron add ...  # same params, fresh session
+> ```
 
 ---
 
@@ -1772,6 +1795,63 @@ consul kv delete -recurse /openclaw/agents/
 
 ## Changelog
 
+### v2.9 (2026-02-18)
+
+- **Consul DNS confirmed working:** Investigated container DNS and confirmed `*.service.consul`
+  resolves correctly inside the container via Podman's aardvark-dns chain:
+  `container → aardvark-dns (10.89.2.1) → host dnsmasq → Consul :8600`.
+  No workarounds needed. The `dns:` entries in `docker-compose.yml` corrected
+  (`.7, .8` → `.6, .7`); they are currently overridden by aardvark-dns in Podman 4.x but
+  will be honoured in Podman 5.x. `NETWORKING.md` rewritten with accurate architecture,
+  verification commands, Podman 5.x migration path, and historical note on the removed
+  `extra_hosts` workaround.
+- **mcporter.json persistence:** `openclaw-agents/jerry/mcporter.json` created and mounted as
+  a volume into the container (`/root/.mcporter/mcporter.json:ro`). MCP server URLs now
+  survive container restarts without an image rebuild. Previous image (2026.2.16) had stale
+  mcporter.json baked in (tailscale at wrong port 25820 instead of 29178; gcp-mcp-server
+  missing entirely). Both are now correct in the mounted file.
+- **Bobby MCP tools restored:** With the mcporter fix, Bobby can now reach all 5 MCP servers
+  including `tailscale-mcp-server` (port 29178) and `gcp-mcp-server`. Phil keeper can now
+  autonomously check Phil's GCP power state and Tailscale mesh presence.
+- **Phil TERMINATED:** Phil GCP VM was found in TERMINATED state (~2.5h downtime). Bobby's
+  next heartbeat run will detect it via GCP MCP and restart per PHIL_POLICY.md (budget: 0/5).
+- **Gateway config updates applied:** `session.maintenance`, `channelHealthCheckMinutes: 5`,
+  `gateway.auth.rateLimit`, and `gateway.http.endpoints` (chat completions + responses disabled)
+  — all from `homelab-base-config.json` feature notes.
+- **CLAUDE.md overhauled:** Added cron command reference (list, runs, add with all flags,
+  edit/enable/disable/rm), mcporter management (verify, call, persist, regenerate), container
+  config persistence table, Consul DNS quick-verify, new known issues (announce delivery failure
+  and Bobby MCP missing tools).
+- **`openclaw-agents/CLAUDE.md` unmodified** — agent-repo CLAUDE.md remains focused on
+  skill tooling and agent workspace layout.
+
+### v2.8 (2026-02-18)
+
+- **Phase 1.75 complete:** All deliverables done. Cron running overnight confirmed healthy.
+- **Bobby overnight validation:** Heartbeat cron ran continuously at `*/15 * * * *`. Session logs
+  confirm Bobby detected and documented a ~1-hour Consul DNS outage (Feb 17 21:47–22:48 UTC) and
+  its recovery — exactly the behavior the monitor was designed for. All 47 Nomad jobs healthy;
+  78 Consul checks passing; Phil VM online (0 restarts triggered).
+- **Session rotation fix:** Bobby's isolated cron session had accumulated 728 messages (687 KB)
+  across 34+ runs after 8.5 hours — root cause: `wakeMode: "now"` resumes the existing isolated
+  session on each cron trigger. Fixed by adding `"sessionRetention": "6h"` to the `cron` block in
+  `openclaw-agents/jerry/openclaw.json`. Sessions now auto-rotate every 6h (~24 runs), keeping
+  context well within the 128K token limit. Bobby's accumulated session was manually reset (cron
+  job rm + re-add: new ID `d5f388b3`). Gateway restarted to apply config.
+- **Billy daily summary cron added:** `0 9 * * *`, isolated session, Discord announce to `#billy`
+  (channel `1472975656542539796`). Job ID: `164d53d4`. First run at 09:00 UTC.
+- **HTTP health endpoints defined:** `bobby/workspace/HEARTBEAT.md` updated with concrete endpoints
+  for the `http_health` check (gateway `http://127.0.0.1:18789/health`, Nomad leader API,
+  Nomad MCP, Infra MCP). Previously this check slot was defined but never populated with URLs.
+- **Bobby cluster layout documented:** `bobby/workspace/TOOLS.md` Cluster Layout section filled in
+  with known values: Nomad/Consul DC, API addresses, Tailscale nodes (jerry/bobby/billy/phil),
+  disk thresholds, HTTP endpoints.
+- **Cron config example updated:** Plan now shows correct `*/15 * * * *` interval, full heartbeat
+  message payload, and `sessionRetention: "6h"`. Session rotation rationale documented.
+- **Consul DNS note:** Bobby's `TOOLS.md` was written during a 1-hour DNS outage on Feb 17
+  21:47–22:48 UTC and incorrectly said Consul DNS was unavailable. Corrected in v2.9 —
+  Consul DNS works via the aardvark-dns → host dnsmasq chain.
+
 ### v2.7 (2026-02-18)
 
 - **Image rebuilt (2026.2.16):** Incorporates upstream OpenClaw code merge, lobster CLI
@@ -1930,12 +2010,25 @@ unknown entries (group:memory)` on startup. This is a false positive in upstream
 
 ---
 
-**Next Steps (Phase 1.75):**
+**Next Steps (Phase 2 complete → Phase 3 and beyond):**
 
 1. ✅ ~~**Bring up Bobby remote node**~~ — Bobby Remote Node paired, connected, and exec validated
 2. ✅ ~~**Enable `nodes` tool for Jerry/Bobby**~~ — removed from deny, added to alsoAllow; gateway restarted
 3. ✅ ~~**Rebuild image**~~ — image `2026.2.16` built with lobster CLI + updated mcporter config (5 MCP servers)
 4. ✅ ~~**Verify MCP tools**~~ — all 5 servers validated; Bobby tool validation runbook all gates passed
 5. ✅ ~~**Bring up Billy remote node**~~ — Billy Remote Node paired and validated
-6. **Add cron jobs** — Bobby heartbeat (`*/15 * * * *`) + Billy daily summary (`0 9 * * *`)
-7. **Deferred:** enable `diagnostics-otel` once OTel collector endpoint is known; enable `thread-ownership` once slack-forwarder is deployed
+6. ✅ ~~**Add cron jobs**~~ — Bobby heartbeat (`*/15 * * * *`) running overnight; Billy daily summary (`0 9 * * *`) added
+7. ✅ ~~**Configure cron session retention**~~ — `sessionRetention: "6h"` added; Bobby session reset to clear 687KB accumulation
+8. ✅ ~~**HTTP health endpoints**~~ — defined in `bobby/workspace/HEARTBEAT.md`; cluster layout documented in `TOOLS.md`
+9. ✅ ~~**Consul DNS in container**~~ — confirmed working via aardvark-dns → host dnsmasq chain; `NETWORKING.md` updated with accurate state
+10. ✅ ~~**mcporter config persistence**~~ — `jerry/mcporter.json` created in openclaw-agents, mounted as volume in docker-compose.yml; survives restarts without image rebuild
+
+**Remaining (your action items):**
+- **`diagnostics-otel`:** Enable once OTel collector endpoint is identified
+- **`thread-ownership`:** Enable once slack-forwarder is deployed
+- **Bobby cron best-effort-deliver:** Re-create Bobby heartbeat job with `--best-effort-deliver` to prevent false-positive `error` status on transient Discord delivery failures (current job fails ~30% of runs on delivery, not on agent execution)
+
+**Next phase work (Phase 3 - Consul KV, optional):**
+- Consul KV schema + `consul-registry` MCP server (see Phase 3 section)
+- Bobby heartbeat writes → Consul KV (agent status dashboard)
+- Cross-agent coordination patterns

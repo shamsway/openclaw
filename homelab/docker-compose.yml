@@ -73,6 +73,12 @@ services:
       - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
       - ${OPENCLAW_BOBBY_WORKSPACE_DIR}:/home/node/.openclaw/workspace-bobby
       - ${OPENCLAW_BILLY_WORKSPACE_DIR}:/home/node/.openclaw/workspace-billy
+      # mcporter config — mounted over the image-baked version so MCP server
+      # URLs survive container restarts without a rebuild. Source of truth is
+      # homelab/.mcp.json; to regenerate after editing .mcp.json:
+      #   jq '{mcpServers:(.mcpServers|to_entries|map({key,value:{baseUrl:.value.url}})|from_entries)}' \
+      #      homelab/.mcp.json > ../openclaw-agents/jerry/mcporter.json
+      - ${OPENCLAW_CONFIG_DIR}/mcporter.json:/root/.mcporter/mcporter.json:ro
       # Tailscale socket — uncomment to allow the tailscale CLI to query the
       # host daemon from inside the container (status, ip, etc.).
       # The container inherits host network connectivity automatically;
@@ -80,8 +86,14 @@ services:
       # Prefer the Tailscale MCP server (see openclaw-agents/jerry/workspace/TOOLS.md) instead.
       # - /var/run/tailscale:/var/run/tailscale:ro
     dns:
+      # Consul-aware homelab resolvers (192.168.252.6, .7).
+      # NOTE: Podman 4.x aardvark-dns overrides these at runtime — containers
+      # get Consul DNS automatically via aardvark-dns → host dnsmasq →
+      # Consul port 8600 chain. These entries are the canonical values for
+      # Podman 5.x+ (--dns on network create) and non-Podman deployments.
+      # The old value of .8 here was wrong.
+      - 192.168.252.6
       - 192.168.252.7
-      - 192.168.252.8
     ports:
       - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
       - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
