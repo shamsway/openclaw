@@ -154,24 +154,33 @@ Pass criteria:
 
 ## Sign-Off Checklist
 
-- [ ] Gate 0 passed
-- [ ] Gate 1 passed
-- [ ] Gate 2 passed
-- [ ] Gate 3 passed
-- [ ] Gate 4 passed
-- [ ] Gate 5 passed
-- [ ] Gate 6 passed
+- [x] Gate 0 passed
+- [x] Gate 1 passed
+- [x] Gate 2 passed
+- [x] Gate 3 passed
+- [x] Gate 4 passed
+- [x] Gate 5 passed
+- [x] Gate 6 passed
 
-Only after this checklist is complete should timed workflows/cron be enabled for Phil recovery.
+**✅ SIGNED OFF — Bobby cleared for cron/timed workflows (2026-02-18)**
 
-## Evidence Capture Template
+## Evidence Capture
 
-Record results in a short log:
+### Run 1 — 2026-02-18
 
-- Timestamp:
-- Operator:
-- Gateway version/image:
-- Passed gates:
-- Failed gates:
-- Blocking errors:
-- Next action:
+- **Timestamp:** 2026-02-18
+- **Operator:** Matt
+- **Gateway version/image:** `2026.2.16`
+- **Passed gates:** 0, 1, 2, 3, 4, 5, 6
+- **Failed gates:** none
+- **Blocking errors:** none (tailscale-mcp auth gap resolved before run; GCP MCP added during session)
+- **Notes:**
+  - Gate 2: `lobster 2026.1.24` on PATH; `llm-task` returned valid JSON
+  - Gate 3: All 5 MCP servers reachable — context7, mcp-nomad-server, infra-mcp-server,
+    tailscale-mcp-server (port 29178), gcp-mcp-server (added this session)
+  - Gate 4 (Nomad): 46/47 Nomad jobs running; `gcp-mcp-server` was pending (since resolved)
+  - Gate 4 (Tailscale): Phil online at `100.100.120.128`
+  - Gate 5: Phil VM `RUNNING` in GCP (`octant-426722`, `us-central1-a`); network probe
+    unreachable as expected (firewall policy on hardened cloud VM)
+  - Gate 6: Bobby confirmed no cron, no restart loops, escalation path Jerry → Slack
+- **Next action:** Enable Bobby heartbeat cron (`*/15 * * * *`) and Billy daily summary cron

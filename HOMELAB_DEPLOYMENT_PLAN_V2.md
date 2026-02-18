@@ -453,31 +453,32 @@ podman exec homelab_openclaw-gateway_1 lobster --version
 
 **Goal:** Verify agents can reach all deployed MCP servers and test remote node execution on Bobby/Billy hosts
 
-**Status:** 🔄 IN PROGRESS — remote node exec validated; MCP rebuild and cron remain
+**Status:** 🔄 IN PROGRESS — image rebuilt (2026.2.16), MCP + Bobby tool validation complete; Billy node and cron remain
 
 ---
 
 #### Step 1: Verify MCP Server Access
 
-Four MCP servers are deployed. Agents use `mcporter` CLI to call them (via `exec` tool).
+Five MCP servers are deployed. Agents use `mcporter` CLI to call them (via `exec` tool).
 The `homelab/.mcp.json` is the source of truth; it is baked into `/root/.mcporter/mcporter.json`
 at image build time.
 
-**Important:** Use **internal** HTTP URLs, not the Traefik external URLs — external HTTPS
-endpoints are not reachable from inside the container.
+**Note:** Prefer direct internal URLs from inside the container. Traefik endpoints
+(`https://*.shamsway.net`) are internal-only (not externally routable) but add TLS
+overhead — use Consul DNS or IP addresses directly when possible.
 
 | Server | Internal URL | Status |
 |---|---|---|
 | `context7` | `https://mcp.context7.com/mcp` | external, always reachable |
-| `mcp-nomad-server` | `http://192.168.252.8:30859/mcp` | confirmed reachable |
-| `infra-mcp-server` | `http://192.168.252.6:26378/mcp` | confirmed reachable |
-| `tailscale-mcp-server` | `http://192.168.252.6:25820/mcp` | confirmed reachable |
+| `mcp-nomad-server` | `http://192.168.252.8:30859/mcp` | ✅ confirmed reachable |
+| `infra-mcp-server` | `http://192.168.252.6:26378/mcp` | ✅ confirmed reachable |
+| `tailscale-mcp-server` | `http://192.168.252.6:29178/mcp` | ✅ confirmed reachable (port updated 2026-02-18) |
+| `gcp-mcp-server` | `http://gcp-mcp-server.service.consul:22241/mcp` | ✅ confirmed reachable |
 
-**Fix applied:** `homelab/.mcp.json` updated to use internal URLs for all three homelab
-servers (was using external Traefik URL for `mcp-nomad-server`; `infra-mcp-server` and
-`tailscale-mcp-server` were missing entirely). **Requires image rebuild to take effect.**
+**Fix applied:** `homelab/.mcp.json` updated to use internal URLs for all servers.
+See changelog for full history. Current `.mcp.json` is the source of truth for all entries.
 
-**Validation (after rebuild):**
+**Validation:**
 
 ```bash
 # Rebuild and push image with updated .mcp.json
@@ -486,7 +487,7 @@ servers (was using external Traefik URL for `mcp-nomad-server`; `infra-mcp-serve
 # Pull and restart
 ./homelab/ctl.sh pull && ./homelab/ctl.sh restart
 
-# Verify mcporter sees all 4 servers
+# Verify mcporter sees all servers
 podman exec homelab_openclaw-gateway_1 cat /root/.mcporter/mcporter.json
 
 # Test each server (agents call mcporter via exec)
@@ -497,15 +498,15 @@ podman exec homelab_openclaw-gateway_1 mcporter list \
   --http-url http://192.168.252.6:26378/mcp --allow-http --name infra-mcp-server
 
 podman exec homelab_openclaw-gateway_1 mcporter list \
-  --http-url http://192.168.252.6:25820/mcp --allow-http --name tailscale-mcp-server
+  --http-url http://192.168.252.6:29178/mcp --allow-http --name tailscale-mcp-server
+
+podman exec homelab_openclaw-gateway_1 mcporter list \
+  --http-url http://gcp-mcp-server.service.consul:22241/mcp --allow-http --name gcp-mcp-server
 
 # Test via Jerry agent (end-to-end)
 podman exec homelab_openclaw-gateway_1 node openclaw.mjs agent --agent jerry \
   -m "Use mcporter to call list_jobs on mcp-nomad-server and report what Nomad jobs are running."
 ```
-
-**Workaround until rebuild:** Agents can still call MCP servers using explicit `--http-url`
-flags in `mcporter` commands (as documented in `TOOLS.md`).
 
 ---
 
@@ -560,23 +561,25 @@ podman exec homelab_openclaw-gateway_1 node openclaw.mjs approvals allowlist add
 
 **Deliverables:**
 
-- [ ] `homelab/.mcp.json` updated with all 4 internal MCP server URLs *(done — needs rebuild)*
-- [ ] Image rebuilt and pushed with updated mcporter config
-- [ ] Jerry agent can call `mcp-nomad-server`, `infra-mcp-server`, `tailscale-mcp-server` via mcporter
+- [x] `homelab/.mcp.json` updated with all 5 MCP server URLs (incl. gcp-mcp-server; tailscale port corrected)
+- [x] Image rebuilt and pushed with updated mcporter config (image `2026.2.16`)
+- [x] Bobby agent can call all MCP servers via mcporter exec: nomad, infra, tailscale, gcp
+- [x] Bobby tool validation runbook completed — all 6 gates passed (see `BOBBY_TOOL_VALIDATION_RUNBOOK.md`)
 - [x] Bobby node container running on Bobby host and paired with Jerry gateway
-- [ ] Billy node container running on Billy host and paired with Jerry gateway
-- [x] `openclaw nodes status` shows Bobby connected (1/2 nodes)
+- [x] Billy node container running on Billy host and paired with Jerry gateway
+- [x] `openclaw nodes status` shows both nodes connected (2/2 nodes)
 - [x] `nodes` tool enabled for Jerry and Bobby (removed from deny, added to alsoAllow)
 - [x] Remote tool execution validated: Jerry dispatched `uname -a` to Bobby Remote Node via `nodes` tool
 
 **Success Criteria:**
 
-- ✅ `mcporter list` succeeds for all 4 servers from inside the container
-- ✅ Jerry can query Nomad job list via `mcp-nomad-server`
-- ✅ Jerry can query infra health via `infra-mcp-server`
-- ✅ Tailscale MCP tools respond correctly
+- ✅ `mcporter list` succeeds for all 5 servers from inside the container
+- ✅ Bobby can query Nomad job list via `mcp-nomad-server` (46/47 jobs running)
+- ✅ Bobby can query infra health via `infra-mcp-server`
+- ✅ Tailscale MCP tools respond correctly (Phil confirmed online at `100.100.120.128`)
+- ✅ GCP MCP authenticated and Phil VM status confirmed (`RUNNING`, `octant-426722`, `us-central1-a`)
 - ✅ Bobby node host connected and paired
-- ⏳ Billy node host connected and paired (not yet started)
+- ✅ Billy node host connected and paired
 - ✅ Remote tool execution confirmed working: `uname -a` ran on Bobby Remote Node (not Jerry's container)
 
 ---
@@ -1723,6 +1726,27 @@ consul kv delete -recurse /openclaw/agents/
 
 ## Changelog
 
+### v2.7 (2026-02-18)
+
+- **Image rebuilt (2026.2.16):** Incorporates upstream OpenClaw code merge, lobster CLI
+  (`@clawdbot/lobster 2026.1.24`), and updated mcporter config with all 5 MCP servers.
+- **Bobby tool validation complete:** All 6 runbook gates passed. See `BOBBY_TOOL_VALIDATION_RUNBOOK.md`
+  for full sign-off record. Bobby is cleared for cron/timed workflows.
+- **GCP MCP server added:** `gcp-mcp-server` added to `homelab/.mcp.json`
+  (`http://gcp-mcp-server.service.consul:22241/mcp`; Traefik: `https://gcp-mcp.shamsway.net`).
+  Bobby validated `validate_gcp_auth`, `list_vms`, and `get_vm_status` end-to-end. Phil VM
+  confirmed `RUNNING` in GCP project `octant-426722`, zone `us-central1-a`.
+  Bobby and Billy `TOOLS.md` updated with GCP MCP server documentation.
+- **Tailscale MCP port updated:** `tailscale-mcp-server` moved from port `25820` to `29178`.
+  Updated in `homelab/.mcp.json` and all references in this plan.
+- **Note — tailscale-mcp-server auth:** During validation, `list_devices` initially returned
+  empty results (no API key configured). Resolved. Phil confirmed online at `100.100.120.128`.
+- **Phil recovery path wired up:** Bobby can now check Phil via both Tailscale MCP
+  (mesh presence) and GCP MCP (VM power state) and start it if down.
+- **Billy remote node up:** Billy node container running on Billy host, paired and validated.
+  Both remote nodes (Bobby + Billy) now connected (2/2).
+- **Next:** Add cron jobs — Bobby heartbeat (`*/15 * * * *`) + Billy daily summary (`0 9 * * *`).
+
 ### v2.6 (2026-02-17)
 
 - **Remote node exec validated:** Jerry successfully dispatched `uname -a` to Bobby Remote Node
@@ -1863,8 +1887,8 @@ consul kv delete -recurse /openclaw/agents/
 **Next Steps (Phase 1.75):**
 1. ✅ ~~**Bring up Bobby remote node**~~ — Bobby Remote Node paired, connected, and exec validated
 2. ✅ ~~**Enable `nodes` tool for Jerry/Bobby**~~ — removed from deny, added to alsoAllow; gateway restarted
-3. **Rebuild image** — picks up lobster CLI (`@clawdbot/lobster`) + updated MCP server URLs in mcporter config
-4. **Verify MCP tools** — test `mcp-nomad-server`, `infra-mcp-server`, `tailscale-mcp-server` via mcporter from inside container and via Jerry agent turn
-5. **Bring up Billy remote node** — start Billy node container on Billy host, pair with Jerry gateway
+3. ✅ ~~**Rebuild image**~~ — image `2026.2.16` built with lobster CLI + updated mcporter config (5 MCP servers)
+4. ✅ ~~**Verify MCP tools**~~ — all 5 servers validated; Bobby tool validation runbook all gates passed
+5. ✅ ~~**Bring up Billy remote node**~~ — Billy Remote Node paired and validated
 6. **Add cron jobs** — Bobby heartbeat (`*/15 * * * *`) + Billy daily summary (`0 9 * * *`)
 7. **Deferred:** enable `diagnostics-otel` once OTel collector endpoint is known; enable `thread-ownership` once slack-forwarder is deployed
