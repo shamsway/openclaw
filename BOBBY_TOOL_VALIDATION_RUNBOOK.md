@@ -152,6 +152,18 @@ Pass criteria:
 - Bobby confirms no scheduler dependence yet.
 - Bobby confirms escalation-first behavior for ambiguous/destructive actions.
 
+## Cron Delivery Guardrail (before enabling jobs)
+
+For isolated cron jobs with announce delivery, always set an explicit target:
+
+```bash
+openclaw cron edit <job-id> --announce --channel discord --to "channel:1472975617111625902"
+```
+
+If `--to` is missing, runs can fail with:
+
+- `cron delivery target is missing`
+
 ## Sign-Off Checklist
 
 - [x] Gate 0 passed

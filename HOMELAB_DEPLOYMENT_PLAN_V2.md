@@ -175,19 +175,19 @@ and `["jerry", "bobby"]` to Billy in `openclaw-agents/jerry/openclaw.json`.
 
 **Deliverables:**
 
-- [ ] Nomad job spec: `terraform/openclaw/openclaw.nomad.hcl` *(deferred — Podman compose sufficient for now)*
+- [ ] Nomad job spec: `terraform/openclaw/openclaw.nomad.hcl` _(deferred — Podman compose sufficient for now)_
 - [x] Multi-agent config: `openclaw.json` with 3 agents
 - [x] Channel bindings configured
-- [ ] Health checks passing in Nomad *(deferred)*
-- [ ] Consul service registration working *(deferred)*
+- [ ] Health checks passing in Nomad _(deferred)_
+- [ ] Consul service registration working _(deferred)_
 
 **Success Criteria:**
 
 - ✅ Gateway healthy and reachable via Tailscale
 - ✅ All 3 agents responding to messages
 - ✅ A2A communication between agents works (Jerry spawns Bobby; Bobby responds in-character)
-- ✅ Nomad restarts recover cleanly *(Podman: container restarts cleanly)*
-- ✅ Logs accessible via Nomad UI *(Podman: `podman logs -f homelab_openclaw-gateway_1`)*
+- ✅ Nomad restarts recover cleanly _(Podman: container restarts cleanly)_
+- ✅ Logs accessible via Nomad UI _(Podman: `podman logs -f homelab_openclaw-gateway_1`)_
 
 ---
 
@@ -199,13 +199,13 @@ and `["jerry", "bobby"]` to Billy in `openclaw-agents/jerry/openclaw.json`.
 
 **Plugins Covered:**
 
-| Plugin | ID | Purpose |
-|---|---|---|
-| Memory (Core) | `memory-core` | File-backed `memory_search`/`memory_get` tools — baseline long-term memory |
-| Memory (LanceDB) | `memory-lancedb` | Vector-search memory with auto-recall/capture — upgrade path over memory-core |
-| Thread Ownership | `thread-ownership` | Prevents Bobby/Billy/Jerry from double-replying in the same Slack thread |
-| Lobster | `lobster` | Resumable typed workflows with approvals — multi-step automation shell |
-| LLM Task | `llm-task` | JSON-only structured LLM sub-tasks; designed to be called from Lobster workflows |
+| Plugin             | ID                 | Purpose                                                                            |
+| ------------------ | ------------------ | ---------------------------------------------------------------------------------- |
+| Memory (Core)      | `memory-core`      | File-backed `memory_search`/`memory_get` tools — baseline long-term memory         |
+| Memory (LanceDB)   | `memory-lancedb`   | Vector-search memory with auto-recall/capture — upgrade path over memory-core      |
+| Thread Ownership   | `thread-ownership` | Prevents Bobby/Billy/Jerry from double-replying in the same Slack thread           |
+| Lobster            | `lobster`          | Resumable typed workflows with approvals — multi-step automation shell             |
+| LLM Task           | `llm-task`         | JSON-only structured LLM sub-tasks; designed to be called from Lobster workflows   |
 | Diagnostics (OTel) | `diagnostics-otel` | OpenTelemetry exporter for homelab observability stack (Prometheus/Grafana/Jaeger) |
 
 ---
@@ -369,7 +369,15 @@ agent's `tools.alsoAllow` list.
   "id": "bobby",
   "tools": {
     "profile": "coding",
-    "alsoAllow": ["group:web", "group:sessions", "message", "agents_list", "lobster", "llm-task", "nodes"],
+    "alsoAllow": [
+      "group:web",
+      "group:sessions",
+      "message",
+      "agents_list",
+      "lobster",
+      "llm-task",
+      "nodes"
+    ],
     "deny": ["write", "edit", "apply_patch", "browser", "canvas", "cron", "gateway", "image"]
   }
 }
@@ -467,13 +475,13 @@ at image build time.
 (`https://*.shamsway.net`) are internal-only (not externally routable) but add TLS
 overhead — use Consul DNS or IP addresses directly when possible.
 
-| Server | Internal URL | Status |
-|---|---|---|
-| `context7` | `https://mcp.context7.com/mcp` | external, always reachable |
-| `mcp-nomad-server` | `http://192.168.252.8:30859/mcp` | ✅ confirmed reachable |
-| `infra-mcp-server` | `http://192.168.252.6:26378/mcp` | ✅ confirmed reachable |
-| `tailscale-mcp-server` | `http://192.168.252.6:29178/mcp` | ✅ confirmed reachable (port updated 2026-02-18) |
-| `gcp-mcp-server` | `http://gcp-mcp-server.service.consul:22241/mcp` | ✅ confirmed reachable |
+| Server                 | Internal URL                                     | Status                                           |
+| ---------------------- | ------------------------------------------------ | ------------------------------------------------ |
+| `context7`             | `https://mcp.context7.com/mcp`                   | external, always reachable                       |
+| `mcp-nomad-server`     | `http://192.168.252.8:30859/mcp`                 | ✅ confirmed reachable                           |
+| `infra-mcp-server`     | `http://192.168.252.6:26378/mcp`                 | ✅ confirmed reachable                           |
+| `tailscale-mcp-server` | `http://192.168.252.6:29178/mcp`                 | ✅ confirmed reachable (port updated 2026-02-18) |
+| `gcp-mcp-server`       | `http://gcp-mcp-server.service.consul:22241/mcp` | ✅ confirmed reachable                           |
 
 **Fix applied:** `homelab/.mcp.json` updated to use internal URLs for all servers.
 See changelog for full history. Current `.mcp.json` is the source of truth for all entries.
@@ -738,16 +746,47 @@ openclaw --profile macbook gateway --port 18789
 
   bindings: [
     // Slack private channels per agent
-    { agentId: "jerry", match: { channel: "slack", teamId: "T255F0YHW", peer: { kind: "channel", id: "C0AF7JDDBB8" } } }, // #jerry
-    { agentId: "bobby", match: { channel: "slack", teamId: "T255F0YHW", peer: { kind: "channel", id: "C0AF9LAUWPL" } } }, // #bobby
-    { agentId: "billy", match: { channel: "slack", teamId: "T255F0YHW", peer: { kind: "channel", id: "C0AEU73AYNB" } } }, // #billy
+    {
+      agentId: "jerry",
+      match: {
+        channel: "slack",
+        teamId: "T255F0YHW",
+        peer: { kind: "channel", id: "C0AF7JDDBB8" },
+      },
+    }, // #jerry
+    {
+      agentId: "bobby",
+      match: {
+        channel: "slack",
+        teamId: "T255F0YHW",
+        peer: { kind: "channel", id: "C0AF9LAUWPL" },
+      },
+    }, // #bobby
+    {
+      agentId: "billy",
+      match: {
+        channel: "slack",
+        teamId: "T255F0YHW",
+        peer: { kind: "channel", id: "C0AEU73AYNB" },
+      },
+    }, // #billy
     // Keep Jerry in #home-automation for now
-    { agentId: "jerry", match: { channel: "slack", teamId: "T255F0YHW", peer: { kind: "channel", id: "G01A46T1546" } } }, // #home-automation (private)
+    {
+      agentId: "jerry",
+      match: {
+        channel: "slack",
+        teamId: "T255F0YHW",
+        peer: { kind: "channel", id: "G01A46T1546" },
+      },
+    }, // #home-automation (private)
 
     // Discord direct chats:
     // peer.id is the SENDER USER ID (not the bot/application id).
     // With one Discord user account, DMs route to one agent; use Discord channels for per-agent split.
-    { agentId: "jerry", match: { channel: "discord", peer: { kind: "direct", id: "DISCORD_USER_ID" } } },
+    {
+      agentId: "jerry",
+      match: { channel: "discord", peer: { kind: "direct", id: "DISCORD_USER_ID" } },
+    },
 
     // Cron jobs target an agent via job.agentId, not via bindings.
   ],
@@ -902,7 +941,7 @@ server.start({ transport: "stdio" });
 
 **Bobby Heartbeat Skill:**
 
-```markdown
+````markdown
 ---
 name: infrastructure-heartbeat
 description: Monitor Nomad/Consul health and update Consul KV with status
@@ -922,6 +961,7 @@ agent: bobby
    ```bash
    nomad status -json | jq '.Allocations[] | select(.ClientStatus != "running")'
    ```
+````
 
 - Count failed allocations
 - List unhealthy jobs
@@ -951,7 +991,7 @@ agent: bobby
    - Timestamp written to Consul KV
    - Next check scheduled
 
-```
+````
 
 ---
 
@@ -1002,7 +1042,7 @@ openclaw --profile macbook onboard
 openclaw --profile macbook gateway --port 18789
 
 # Or use OpenClaw.app (menubar, GUI onboarding)
-```
+````
 
 ---
 
@@ -1454,6 +1494,9 @@ openclaw cron add \
   --cron "*/5 * * * *" \
   --session isolated \
   --agent bobby \
+  --announce \
+  --channel discord \
+  --to "channel:1472975617111625902" \
   --message "Run infrastructure heartbeat check"
 
 openclaw cron add \
@@ -1461,6 +1504,9 @@ openclaw cron add \
   --cron "0 9 * * *" \
   --session isolated \
   --agent billy \
+  --announce \
+  --channel discord \
+  --to "channel:1472975656542539796" \
   --message "Generate daily infrastructure summary"
 ```
 
@@ -1794,7 +1840,7 @@ consul kv delete -recurse /openclaw/agents/
   no `plugins enable` CLI commands required. Config is the source of truth and is bind-mounted.
   Plugins with external npm deps (memory-lancedb, diagnostics-otel) require those deps to be
   `npm install`-ed in the Dockerfile; done via `npm pkg delete devDependencies && npm install
-  --omit=dev --ignore-scripts` to strip pnpm workspace: references before calling npm.
+--omit=dev --ignore-scripts` to strip pnpm workspace: references before calling npm.
 - **Dockerfile:** Added `npm install` steps for `extensions/memory-lancedb` and
   `extensions/diagnostics-otel` so their native/OTel deps are available in the image.
 - **ctl.sh:** Added `node-up`, `node-down`, `node-restart`, `node-logs`, `node-ps` commands
@@ -1806,7 +1852,7 @@ consul kv delete -recurse /openclaw/agents/
 - **TOOLS.md:** Added "OpenClaw Native Tools" section to Jerry/Bobby/Billy workspace TOOLS.md
   files documenting `lobster` and `llm-task` (Jerry only) with usage notes per agent role.
 - **Known issue (upstream):** Gateway logs `[tools] tools.profile (coding) allowlist contains
-  unknown entries (group:memory)` on startup. This is a false positive in upstream
+unknown entries (group:memory)` on startup. This is a false positive in upstream
   `stripPluginOnlyAllowlist` — memory tools work correctly. Will resolve when upstream fix
   is merged.
 - **Next:** Install `lobster` CLI binary in Dockerfile; configure `diagnostics-otel` once
@@ -1885,6 +1931,7 @@ consul kv delete -recurse /openclaw/agents/
 ---
 
 **Next Steps (Phase 1.75):**
+
 1. ✅ ~~**Bring up Bobby remote node**~~ — Bobby Remote Node paired, connected, and exec validated
 2. ✅ ~~**Enable `nodes` tool for Jerry/Bobby**~~ — removed from deny, added to alsoAllow; gateway restarted
 3. ✅ ~~**Rebuild image**~~ — image `2026.2.16` built with lobster CLI + updated mcporter config (5 MCP servers)
