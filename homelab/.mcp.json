@@ -14,7 +14,7 @@
     },
     "tailscale-mcp-server": {
       "type": "http",
-      "url": "http://192.168.252.6:29178/mcp"
+      "url": "http://192.168.252.7:23084/mcp"
     },
     "gcp-mcp-server": {
       "type": "http",
