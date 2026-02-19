@@ -379,21 +379,29 @@ require a restart.
 **Use `ctl.sh restart` for config-only changes (no new volume mounts):**
 
 ```bash
-./homelab/ctl.sh restart   # uses podman restart — safe for DNS
+./homelab/ctl.sh restart   # uses podman restart — preferred
 ```
 
-`ctl.sh restart` calls `podman restart` directly, which does an atomic stop+start
-without disrupting the aardvark-dns DNS process. Both `podman-compose restart` and
-`ctl.sh down && ctl.sh up` can break Consul DNS in Podman 4.x.
+`ctl.sh restart` calls `podman restart` directly. Both `podman-compose restart` and
+`ctl.sh down && ctl.sh up` reliably break Consul DNS in Podman 4.x. `podman restart`
+is safer but **aardvark-dns can still drop on the first restart** — always verify:
+
+```bash
+podman exec homelab_openclaw-gateway_1 nslookup nomad.service.consul
+# If NXDOMAIN or connection refused: run ctl.sh restart once more
+./homelab/ctl.sh restart
+```
+
+A second `podman restart` reliably revives aardvark-dns when the first drops it.
 
 **When you must use `down && up`** (e.g. to activate a new volume mount in
-docker-compose.yml), verify DNS and fix if needed:
+docker-compose.yml):
 
 ```bash
 ./homelab/ctl.sh down && ./homelab/ctl.sh up
 sleep 2
 podman exec homelab_openclaw-gateway_1 nslookup nomad.service.consul
-# If NXDOMAIN: podman restart homelab_openclaw-gateway_1
+# If NXDOMAIN: ./homelab/ctl.sh restart  (may need to run twice)
 ```
 
 See `homelab/NETWORKING.md` for full details on the aardvark-dns restart quirk.
