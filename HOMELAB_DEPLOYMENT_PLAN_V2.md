@@ -243,9 +243,13 @@ Prevents multiple agents from claiming the same Slack thread when a message is
 broadcast to multiple bindings. Requires the `slack-forwarder` ownership API to be
 reachable from the gateway container.
 
-**Prerequisite:** A `slack-forwarder` service must be deployed and reachable.
-Skip this step if that service is not yet available; add it when thread collisions
-are observed in practice.
+**Full spec:** See [`SLACK_FORWARDER_PLAN.md`](SLACK_FORWARDER_PLAN.md) for the
+complete build and deploy plan — API contract, Redis commands, Nomad job spec,
+and final openclaw.json config.
+
+**Prerequisite:** Build and deploy `slack-forwarder` per the plan above. It is a
+~50-line HTTP service backed by Redis (`SET NX EX` for atomic thread claims).
+Once deployed, `slack-forwarder.service.consul:8750` resolves from the container.
 
 The config entry is already present in `openclaw-agents/jerry/openclaw.json` as
 `"thread-ownership": { "enabled": false }`. When slack-forwarder is available,
@@ -255,12 +259,14 @@ change to:
 "thread-ownership": {
   "enabled": true,
   "config": {
-    "forwarderUrl": "http://slack-forwarder.service.consul:PORT"
+    "forwarderUrl": "http://slack-forwarder.service.consul:8750",
+    "abTestChannels": ["C0AF7JDDBB8", "C0AF9LAUWPL", "C0AEU73AYNB", "G01A46T1546"]
   }
 }
 ```
 
-Then restart the gateway.
+Then restart the gateway. `abTestChannels` must be non-empty or the plugin skips
+enforcement entirely — these are the four Slack channel IDs in the gateway bindings.
 
 ---
 
