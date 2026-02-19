@@ -82,7 +82,7 @@ podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron add \
   --announce --channel discord --to "channel:1472975617111625902" \
   --session isolated --wake now \
   --best-effort-deliver \
-  -- "Run your full heartbeat checklist from HEARTBEAT.md..."
+  --message "Run your full heartbeat checklist from HEARTBEAT.md..."
 
 # Edit an existing job (patch specific fields)
 podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron edit --id <job-id> \
@@ -262,6 +262,29 @@ almost always use `alsoAllow` for extras.
 
 ---
 
+### `sessionRetention` Does NOT Rotate Cron Sessions
+
+**What it actually does:** `sessionRetention` (in `cron` config block) is a **TTL for
+deleting old run records** from the session store after they expire. It is NOT a session
+rotation interval. Source: `src/cron/session-reaper.ts`.
+
+**What controls session rotation:** The global `session.reset` config. Default: `"daily"`
+at **4:00 AM UTC**. A cron session is reused across runs until the session's `updatedAt`
+falls before the last 4 AM reset — i.e., sessions run for up to ~24 hours before
+auto-rotating. There is no per-job override.
+
+**Consequence:** Isolated cron sessions accumulate indefinitely within the 24h daily window.
+Bobby's session ran for 18+ hours (1136 messages) before degrading — `sessionRetention: "6h"`
+had no effect on rotation.
+
+**Fix:** Use Billy's `Billy: Bobby session reset` cron job (`0 */12 * * *`) to explicitly
+rm+re-add Bobby's heartbeat job every 12 hours. See `openclaw-agents/billy/workspace/MAINTENANCE.md`.
+
+**Alternative (untested):** Add `session.reset.idleMinutes: 360` to `openclaw.json` to
+reset any session idle for 6+ hours. This applies globally to all sessions — test carefully.
+
+---
+
 ### Cron Jobs Showing `error` with "cron announce delivery failed"
 
 **Symptom:** `cron list` shows `error` status and `consecutiveErrors > 0`. The run JSONL
@@ -274,7 +297,7 @@ days.
 **Fix (preventive):** Add `--best-effort-deliver` when creating cron jobs. This marks
 the job as `ok` even if delivery fails, and logs the delivery error separately:
 ```bash
-node openclaw.mjs cron add ... --best-effort-deliver -- "message"
+node openclaw.mjs cron add ... --best-effort-deliver --message "message"
 ```
 
 **Fix (reactive):** A container restart often clears stuck delivery state. After restart,

@@ -1526,18 +1526,25 @@ openclaw cron add \
   --message "Generate your daily infrastructure summary. Read memory/task-state.json for recent task results. Review HEARTBEAT.md for what to report. Provide a concise summary of what automation ran overnight, any issues encountered, and overall automation health. Keep it brief."
 ```
 
-> **Session rotation note:** With `sessionRetention: "6h"` in the `cron` config, OpenClaw
-> automatically creates a fresh isolated session every 6 hours for each cron job, preventing
-> unbounded context accumulation. Without this setting, isolated cron sessions accumulate all
-> runs indefinitely — a 687KB session with 728 messages was observed after 8.5 hours of
-> 15-minute heartbeat runs. The 6h window allows ~24 runs of context (enough for pattern
-> recognition) while staying well within the 128K token context limit.
+> **Session rotation note:** `sessionRetention: "6h"` in the `cron` config is a **TTL for
+> deleting old run records**, not a session rotation interval. Isolated cron sessions reuse
+> the same session until the daily reset at **4:00 AM UTC** — meaning sessions can accumulate
+> up to ~24 hours of runs before auto-rotating. A 1136-message / 18-hour session was observed
+> (2026-02-19), causing Bobby to stop calling tools and pattern-match from session history.
 >
-> If a session grows problematic before the retention window expires (e.g. Bobby starts
-> hallucinating or failing), manually reset by running:
+> **Active mitigation:** Billy's `Billy: Bobby session reset` cron job (`0 */12 * * *`)
+> explicitly rm+re-adds Bobby's heartbeat job every 12 hours. See
+> `openclaw-agents/billy/workspace/MAINTENANCE.md` for the full procedure.
+>
+> If a session grows problematic before the next scheduled reset, manually reset:
 > ```bash
-> openclaw cron rm <job-id> && openclaw cron add ...  # same params, fresh session
+> node /app/openclaw.mjs cron rm <job-id>
+> node /app/openclaw.mjs cron add --name "Bobby heartbeat" --cron "*/15 * * * *" \
+>   --agent bobby --announce --channel discord --to "channel:1472975617111625902" \
+>   --session isolated --wake now --best-effort-deliver \
+>   --message "Run your full heartbeat checklist from HEARTBEAT.md..."
 > ```
+> Note: use `--message`, not `--` separator — the `--` syntax is not supported.
 
 ---
 
