@@ -175,7 +175,7 @@ and `["jerry", "bobby"]` to Billy in `openclaw-agents/jerry/openclaw.json`.
 
 **Deliverables:**
 
-- [ ] Nomad job spec: `terraform/openclaw/openclaw.nomad.hcl` _(deferred — Podman compose sufficient for now)_
+- [ ] Nomad job spec: `homelab/openclaw-gateway.nomad.hcl` _(see Nomad Deployment in Configuration Files — updated 2026-02-20 with correct Traefik tags, dynamic ports, Nomad variables)_
 - [x] Multi-agent config: `openclaw.json` with 3 agents
 - [x] Channel bindings configured
 - [ ] Health checks passing in Nomad _(deferred)_
@@ -1192,146 +1192,253 @@ openclaw --profile macbook gateway --port 18789
 
 ## Configuration Files
 
-### Nomad Job Spec (Phase 1)
+### Nomad Deployment (Phase 1 — Active)
 
-**File:** `terraform/openclaw/openclaw.nomad.hcl`
+**File:** `homelab/openclaw-gateway.nomad.hcl`
+
+**Port strategy:**
+
+Both ports use dynamic host assignment with `to` so the container always listens on fixed
+internal ports. Traefik reads the dynamic host port from Consul automatically. Direct
+IP:port fallback is available for debugging by looking up the current port from Consul.
+
+- **`http`** (dynamic → container:18789) — Traefik routes `jerry.shamsway.net` → HTTPS with
+  Let's Encrypt. WebSocket upgrades work transparently (Traefik 3.x). Direct fallback:
+  `http://<jerry-ip>:<dynamic-port>`.
+- **`bridge`** (dynamic → container:18790) — Registered in Consul as `openclaw-bridge` for
+  remote node discovery. No Traefik routing. See note on remote nodes below.
+
+**Critical: `CONSUL_HTTP_ADDR` override**
+
+The Dockerfile bakes `http://127.0.0.1:8500` as default. Inside a Nomad task, `127.0.0.1`
+is the container loopback — not the host Consul agent. This silently breaks all `consul`
+CLI commands run by agents. The job spec overrides this to `http://consul.service.consul:8500`.
+
+**Secrets migration from `.env` to Nomad variables:**
+
+```bash
+nomad var put nomad/jobs/openclaw-gateway \
+  gateway_token="..." \
+  discord_token="..." \
+  slack_bot_token="..." \
+  slack_app_token="..." \
+  anthropic_api_key="..." \
+  zai_api_key="..." \
+  moonshot_api_key="..." \
+  op_service_account_token="..." \
+  litellm_base_url="https://litellm.shamsway.net" \
+  litellm_api_key="..."
+```
 
 ```hcl
-job "openclaw" {
-  datacenters = ["dc1"]
+job "openclaw-gateway" {
+  datacenters = ["shamsway"]
   type        = "service"
+  region      = "home"
 
-  # Pin to Jerry node for state persistence
+  meta {
+    version = "2026.2.16"
+  }
+
+  # Pin to rootless Podman nodes (matches pattern of all other homelab jobs)
+  constraint {
+    attribute = "${meta.rootless}"
+    operator  = "="
+    value     = "true"
+  }
+
+  # Pin to Jerry's host — config/workspace volumes live here
   constraint {
     attribute = "${node.unique.name}"
-    value     = "jerry"
+    value     = "jerry-agent"
   }
 
   group "gateway" {
     count = 1
 
+    constraint {
+      attribute = "${attr.consul.version}"
+      operator  = "semver"
+      value     = ">= 1.8.0"
+    }
+
     network {
+      dns {
+        # Consul-aware resolvers — .service.consul names resolve natively in Nomad
+        # (no aardvark-dns required; eliminates the DNS restart quirk from Podman compose)
+        servers = ["192.168.252.1", "192.168.252.6", "192.168.252.7"]
+      }
+      # Dynamic port — Traefik reads from Consul; direct fallback: http://<host-ip>:<port>
       port "http" {
-        static = 18789
-        to     = 18789
+        to = 18789  # container always listens on 18789; host port assigned dynamically
       }
+      # Bridge port — accepts inbound connections from Bobby/Billy remote node hosts
       port "bridge" {
-        static = 18790
-        to     = 18790
-      }
-      port "canvas" {
-        static = 18793
-        to     = 18793
+        to = 18790
       }
     }
 
-    volume "openclaw-config" {
-      type      = "host"
-      source    = "openclaw-config"
-      read_only = false
+    ephemeral_disk {
+      size_mb = 500
     }
 
-    volume "openclaw-workspace" {
-      type      = "host"
-      source    = "openclaw-workspace"
-      read_only = false
+    migrate {
+      max_parallel     = 1
+      health_check     = "checks"
+      min_healthy_time = "10s"
+      healthy_deadline = "5m"
+    }
+
+    reschedule {
+      delay          = "30s"
+      delay_function = "exponential"
+      max_delay      = "1h"
+      unlimited      = true
     }
 
     task "gateway" {
       driver = "podman"
 
       config {
-        image = "${OPENCLAW_IMAGE}"  # From Terraform variable
-        ports = ["http", "bridge", "canvas"]
+        image      = "registry.service.consul:8082/openclaw-homelab:2026.2.16"
+        ports      = ["http", "bridge"]
+        force_pull = true
 
-        args = [
-          "node",
-          "dist/index.js",
-          "gateway",
-          "--bind", "lan",
-          "--port", "18789",
+        # Bind mounts — same paths as Podman compose; no host_volume config required
+        volumes = [
+          "/opt/homelab/data/home/git/openclaw-agents/jerry:/home/node/.openclaw",
+          "/opt/homelab/data/home/git/openclaw-agents/jerry/workspace:/home/node/.openclaw/workspace",
+          "/opt/homelab/data/home/git/openclaw-agents/bobby/workspace:/home/node/.openclaw/workspace-bobby",
+          "/opt/homelab/data/home/git/openclaw-agents/billy/workspace:/home/node/.openclaw/workspace-billy",
+          "/opt/homelab/data/home/git/openclaw-agents/jerry/mcporter.json:/root/.mcporter/mcporter.json",
         ]
-
-        # Rootless Podman
-        userns_mode = "host"
-      }
-
-      volume_mount {
-        volume      = "openclaw-config"
-        destination = "/home/node/.openclaw"
-        read_only   = false
-      }
-
-      volume_mount {
-        volume      = "openclaw-workspace"
-        destination = "/home/node/.openclaw/workspace"
-        read_only   = false
       }
 
       env {
         HOME = "/home/node"
         TERM = "xterm-256color"
 
-        # Infrastructure CLIs
-        NOMAD_ADDR       = "http://nomad.service.consul:4646"
-        CONSUL_HTTP_ADDR = "http://127.0.0.1:8500"
+        NOMAD_ADDR = "http://nomad.service.consul:4646"
 
-        # LLM providers
-        LITELLM_BASE_URL = "https://litellm.shamsway.net"  # Homelab LiteLLM gateway (with observability)
+        # CRITICAL: must use Consul DNS name, not 127.0.0.1
+        # Inside a Nomad task, 127.0.0.1 is the container loopback.
+        # The Dockerfile bakes 127.0.0.1:8500 as default — this overrides it.
+        CONSUL_HTTP_ADDR = "http://consul.service.consul:8500"
       }
 
-      # 1Password secrets injection
+      # Secrets from Nomad variables — replaces .env file
       template {
-        data = <<EOT
-{{with secret "kv/data/openclaw"}}
-OPENCLAW_GATEWAY_TOKEN={{.Data.data.gateway_token}}
-ANTHROPIC_API_KEY={{.Data.data.anthropic_api_key}}
-LITELLM_API_KEY={{.Data.data.litellm_api_key}}
-ZAI_API_KEY={{.Data.data.zai_api_key}}
-OP_SERVICE_ACCOUNT_TOKEN={{.Data.data.op_service_account_token}}
-SLACK_BOT_TOKEN={{.Data.data.slack_bot_token}}
-SLACK_APP_TOKEN={{.Data.data.slack_app_token}}
-DISCORD_TOKEN={{.Data.data.discord_token}}
-{{end}}
-EOT
         destination = "secrets/openclaw.env"
         env         = true
+        data        = <<EOT
+{{- with nomadVar "nomad/jobs/openclaw-gateway" -}}
+OPENCLAW_GATEWAY_TOKEN="{{ .gateway_token }}"
+OPENCLAW_DISCORD_TOKEN="{{ .discord_token }}"
+OPENCLAW_SLACK_BOT_TOKEN="{{ .slack_bot_token }}"
+OPENCLAW_SLACK_APP_TOKEN="{{ .slack_app_token }}"
+ANTHROPIC_API_KEY="{{ .anthropic_api_key }}"
+ZAI_API_KEY="{{ .zai_api_key }}"
+MOONSHOT_API_KEY="{{ .moonshot_api_key }}"
+OP_SERVICE_ACCOUNT_TOKEN="{{ .op_service_account_token }}"
+LITELLM_BASE_URL="{{ .litellm_base_url }}"
+LITELLM_API_KEY="{{ .litellm_api_key }}"
+{{- end -}}
+EOT
       }
 
+      # Primary service — HTTP gateway with Traefik HTTPS ingress
       service {
-        name = "openclaw"
-        port = "http"
+        name     = "openclaw-gateway"
+        port     = "http"
+        provider = "consul"
+
         tags = [
-          "openclaw",
           "gateway",
+          "openclaw",
           "traefik.enable=true",
-          "traefik.http.routers.openclaw.rule=Host(`openclaw.yourdomain.com`)",
-          "traefik.http.routers.openclaw.tls=true",
+          "traefik.http.routers.openclaw-gateway.rule=Host(`jerry.shamsway.net`)",
+          "traefik.http.routers.openclaw-gateway.tls=true",
+          "traefik.http.routers.openclaw-gateway.tls.certresolver=letsencrypt",
+          "traefik.http.routers.openclaw-gateway.entrypoints=websecure",
+          "traefik.http.services.openclaw-gateway.loadbalancer.server.scheme=http",
+          "traefik.http.services.openclaw-gateway.loadbalancer.passhostheader=true",
         ]
 
         check {
           type     = "http"
           path     = "/health"
-          interval = "10s"
-          timeout  = "2s"
+          interval = "30s"
+          timeout  = "10s"
+        }
+      }
+
+      # Bridge service — registered in Consul for remote node discovery; no Traefik routing
+      service {
+        name     = "openclaw-bridge"
+        port     = "bridge"
+        provider = "consul"
+        tags     = ["bridge", "openclaw"]
+
+        check {
+          type     = "tcp"
+          interval = "30s"
+          timeout  = "5s"
         }
       }
 
       resources {
-        cpu    = 1000  # 1 CPU
-        memory = 2048  # 2GB
+        cpu        = 512   # LLM calls are outbound; gateway itself is CPU-light
+        memory     = 1024
+        memory_max = 3072  # 3 active agents accumulate session state; allow burst
       }
 
-      # Restart policy
       restart {
-        attempts = 3
+        attempts = 2
         delay    = "15s"
-        interval = "5m"
+        interval = "30m"
         mode     = "fail"
       }
     }
   }
 }
+```
+
+**Accessing the gateway after migration:**
+
+| Method | URL | When to use |
+|---|---|---|
+| Traefik HTTPS | `https://jerry.shamsway.net` | Primary — webchat UI, API clients |
+| Direct HTTP | `http://<jerry-ip>:<consul-port>` | Debug fallback |
+| Health check | `https://jerry.shamsway.net/health` | Monitoring |
+
+Find the current direct port:
+```bash
+NOMAD_ADDR=http://nomad.service.consul:4646 nomad job status openclaw-gateway | grep -A5 "Allocation"
+# or
+consul catalog services -tags | grep openclaw
+```
+
+**Remote node bridge port after migration:**
+
+Bobby/Billy node hosts connect inbound to the bridge port (18790 → container). With dynamic
+ports the host port changes on each allocation restart. Two options:
+
+1. **Discovery via Consul** (preferred — matches Nomad patterns): Remote node startup scripts
+   query `openclaw-bridge` service from Consul before connecting.
+2. **Static port** (simpler — preserves current behaviour): Change the bridge port to static
+   if remote nodes need a fixed known port:
+   ```hcl
+   port "bridge" {
+     static = 18790
+     to     = 18790
+   }
+   ```
+   Static ports must be unique across the cluster. Safe here since the job is pinned to
+   `jerry-agent` and no other job uses 18790 on that node.
+
+**Run the job:**
+```bash
+NOMAD_ADDR=http://nomad.service.consul:4646 nomad job run homelab/openclaw-gateway.nomad.hcl
 ```
 
 ### Multi-Agent Configuration (Phase 1)
@@ -1807,6 +1914,35 @@ consul kv delete -recurse /openclaw/agents/
 ---
 
 ## Changelog
+
+### v3.0 (2026-02-20)
+
+- **Nomad deployment spec updated:** Replaced the draft Nomad job spec with a production-ready
+  version based on patterns from running homelab jobs (slack-gateway, open-webui, gcp-mcp-server).
+  Key changes from the old draft:
+  - **Dynamic ports with `to` mapping:** `http` (→18789) and `bridge` (→18790). Traefik reads
+    the dynamic host port from Consul; direct IP:port fallback available for debugging. Old draft
+    used static ports which require global uniqueness across the cluster.
+  - **`CONSUL_HTTP_ADDR` fix:** Changed from `http://127.0.0.1:8500` (container loopback —
+    broken in Nomad tasks) to `http://consul.service.consul:8500`. The Dockerfile bakes the
+    broken default; this env override is required for all Consul CLI commands to work.
+  - **Secrets via Nomad variables:** Replaced Vault `secret` template (not used in this homelab)
+    with `nomadVar` template matching the slack-gateway pattern. Secrets migrate from `.env` file
+    to `nomad var put nomad/jobs/openclaw-gateway`.
+  - **Bind mounts via `config.volumes`:** Replaced `host_volume` + `volume_mount` stanzas with
+    direct bind mounts (open-webui pattern). No `host_volume` block needed in Nomad client config.
+  - **Node constraint:** `node.unique.name = "jerry-agent"` pins the job to Jerry's physical host
+    where the openclaw-agents volumes live. Old draft used `"jerry"` which doesn't match any node name.
+  - **`meta.rootless = true` constraint** added — matches all other rootless Podman jobs.
+  - **Consul semver constraint** added at group level.
+  - **DNS servers block** added: `192.168.252.1`, `.6`, `.7` — native `.service.consul` resolution
+    in Nomad tasks; eliminates the aardvark-dns restart quirk entirely.
+  - **Full Traefik tags:** Updated from placeholder `yourdomain.com` to `jerry.shamsway.net` with
+    complete tag set matching homelab pattern (tls, certresolver, entrypoints, passhostheader).
+  - **Bridge port registered in Consul** as `openclaw-bridge` service for remote node discovery.
+  - **Resources resized:** `cpu=512, memory=1024, memory_max=3072` (3 active agents; allow burst).
+  - **File path:** `terraform/openclaw/openclaw.nomad.hcl` → `homelab/openclaw-gateway.nomad.hcl`.
+- **Phase 1 deliverable:** Nomad job spec path updated to `homelab/openclaw-gateway.nomad.hcl`.
 
 ### v2.9 (2026-02-18)
 
