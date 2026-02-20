@@ -53,7 +53,13 @@
     }
   ],
   "session": {
-    "store": "~/.openclaw/sessions"
+    "store": "~/.openclaw/sessions",
+    "maintenance": {
+      "mode": "enforce",
+      "pruneAfter": "30d",
+      "maxEntries": 500,
+      "rotateBytes": "10mb"
+    }
   },
   "channels": {
     "control": {
@@ -64,9 +70,26 @@
     "port": 18789,
     "mode": "local",
     "bind": "lan",
+    "channelHealthCheckMinutes": 5,
     "auth": {
       "mode": "token",
-      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+      "token": "${OPENCLAW_GATEWAY_TOKEN}",
+      "rateLimit": {
+        "maxAttempts": 10,
+        "windowMs": 60000,
+        "lockoutMs": 300000,
+        "exemptLoopback": true
+      }
+    },
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": false
+        },
+        "responses": {
+          "enabled": false
+        }
+      }
     }
   }
 }

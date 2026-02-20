@@ -74,9 +74,10 @@ This deployment plan implements a **phased approach** to building an enterprise-
 │  MacBook M3 Max (Mobile/Dev Work)                   │
 │  ┌────────────────────────────────────────────────┐ │
 │  │  Independent Gateway (OPTIONAL)                │ │
-│  │    • Agent: "Dev" or "Mobile"                  │ │
+│  │    • Agents: Harry + Bob (MacBook-local)       │ │
 │  │    • LM Studio: Local LLM (when MacBook on)    │ │
-│  │    • Separate config, workspace, channels      │ │
+│  │    • Separate config + workspace                │ │
+│  │    • Initial mode: local-only (no Slack/Discord)│ │
 │  │    • Offline capability (no homelab required)  │ │
 │  │    • Can connect to homelab gateway as client  │ │
 │  │    • NOT used by homelab agents (reliability)  │ │
@@ -642,7 +643,7 @@ podman exec homelab_openclaw-gateway_1 node openclaw.mjs approvals allowlist add
 - ✅ No channel conflicts or duplicate responses
 - ✅ Ready to add job-specific agents (Phase 3+)
 
-**MacBook Setup Commands (Optional, Phase 4):**
+**MacBook Setup Commands (Optional, Phase 4, local-only first):**
 
 ```bash
 # Install LM Studio (GUI)
@@ -657,6 +658,9 @@ openclaw --profile macbook onboard
 
 # Configure to use LM Studio models
 # LM Studio runs local server on http://localhost:1234
+# Keep MacBook gateway local-only initially:
+# - Do NOT configure Slack/Discord/WhatsApp tokens yet
+# - Use Web UI / local CLI first
 # Configure in ~/.openclaw-macbook/openclaw.json:
 {
   "models": {
@@ -680,10 +684,16 @@ openclaw --profile macbook onboard
   "agents": {
     "list": [
       {
-        "id": "dev",
-        "name": "Dev Agent (MacBook)",
+        "id": "harry",
+        "name": "Harry (MacBook)",
         "model": "lmstudio/local-model",  // Whatever model you load in LM Studio
-        "workspace": "~/.openclaw/workspace-macbook"
+        "workspace": "~/.openclaw/workspace-harry"
+      },
+      {
+        "id": "bob",
+        "name": "Bob (MacBook Research)",
+        "model": "lmstudio/local-model",
+        "workspace": "~/.openclaw/workspace-bob"
       }
     ]
   }
@@ -695,7 +705,7 @@ openclaw --profile macbook gateway --port 18789
 # Or use OpenClaw.app (menubar, GUI)
 ```
 
-**Note:** LM Studio is used ONLY for MacBook agent, NOT for homelab agents in current testing mode
+**Note:** LM Studio is used ONLY for MacBook agents, NOT for homelab agents in current testing mode
 
 **Homelab Gateway Config:**
 
@@ -1010,7 +1020,7 @@ agent: bobby
 ---
 
 ### Phase 4: MacBook Independent Gateway (Week 4)
-**Goal:** Independent MacBook gateway for mobile/dev work with local LLM
+**Goal:** Independent MacBook gateway for local/offline work with local LLM
 
 **Status:** OPTIONAL (lower priority, enhances flexibility)
 
@@ -1018,24 +1028,32 @@ agent: bobby
 1. Install OpenClaw.app on MacBook (or CLI)
 2. Set up LM Studio with models (personal preference)
 3. Run separate onboarding (different profile)
-4. Configure independent agent ("Dev" or "Mobile")
-5. Use different messaging accounts (separate channels)
+4. Configure independent MacBook agents (Harry + Bob)
+5. Keep channels disabled initially (local-only operation)
 6. Test offline capability with local LLM
+7. Optional later: add dedicated MacBook channel identities (separate Slack app / Discord bot)
 
 **Deliverables:**
 - [ ] MacBook gateway running with separate config
 - [ ] LM Studio configured with preferred models
-- [ ] MacBook agent uses local LLM (LM Studio)
-- [ ] Different workspace, sessions, channels
+- [ ] MacBook agents (Harry + Bob) use local LLM (LM Studio)
+- [ ] Different workspace + sessions from homelab
+- [ ] Local-only channel mode validated (no shared channel credentials)
 - [ ] Can work offline (no homelab dependency)
 - [ ] Can also connect to homelab gateway as client
 
 **Success Criteria:**
 - ✅ MacBook gateway independent of homelab
-- ✅ Local LLM (LM Studio) working for MacBook agent
+- ✅ Local LLM (LM Studio) working for MacBook agents
 - ✅ Works offline (airplane mode, etc.)
-- ✅ No channel conflicts (different accounts)
+- ✅ No channel conflicts (MacBook starts with no external channels)
 - ✅ Can access homelab gateway via Tailscale when online
+
+**Channel Strategy (explicit):**
+
+- **Initial state:** MacBook gateway runs with no Slack/Discord/WhatsApp credentials.
+- **Do not share** Slack/Discord bot credentials between Jerry and MacBook gateways.
+- **If channels are later needed on MacBook:** create separate app/bot identities per gateway.
 
 **Note:** MacBook LLM is NOT used by homelab agents - reliability requirement
 
@@ -1603,7 +1621,7 @@ NOMAD_ADDR=http://nomad.service.consul:4646 nomad job run homelab/openclaw-gatew
   cron: {
     enabled: true,
     maxConcurrentRuns: 2,
-    sessionRetention: "6h",  // Rotate isolated sessions every 6h to cap context accumulation
+    sessionRetention: "6h", // Rotate isolated sessions every 6h to cap context accumulation
   },
 }
 ```
@@ -1643,7 +1661,9 @@ openclaw cron add \
 > explicitly rm+re-adds Bobby's heartbeat job every 12 hours. See
 > `openclaw-agents/billy/workspace/MAINTENANCE.md` for the full procedure.
 >
-> If a session grows problematic before the next scheduled reset, manually reset:
+> If a session grows problematic before the retention window expires (e.g. Bobby starts
+> hallucinating or failing), manually reset by running:
+>
 > ```bash
 > node /app/openclaw.mjs cron rm <job-id>
 > node /app/openclaw.mjs cron add --name "Bobby heartbeat" --cron "*/15 * * * *" \
@@ -2173,11 +2193,13 @@ unknown entries (group:memory)` on startup. This is a false positive in upstream
 10. ✅ ~~**mcporter config persistence**~~ — `jerry/mcporter.json` created in openclaw-agents, mounted as volume in docker-compose.yml; survives restarts without image rebuild
 
 **Remaining (your action items):**
+
 - **`diagnostics-otel`:** Enable once OTel collector endpoint is identified
 - **`thread-ownership`:** Enable once slack-forwarder is deployed
 - **Bobby cron best-effort-deliver:** Re-create Bobby heartbeat job with `--best-effort-deliver` to prevent false-positive `error` status on transient Discord delivery failures (current job fails ~30% of runs on delivery, not on agent execution)
 
 **Next phase work (Phase 3 - Consul KV, optional):**
+
 - Consul KV schema + `consul-registry` MCP server (see Phase 3 section)
 - Bobby heartbeat writes → Consul KV (agent status dashboard)
 - Cross-agent coordination patterns
