@@ -22,6 +22,8 @@
 #   node-restart <n> Restart a remote node container
 #   node-logs <n>   Follow logs for a remote node container
 #   node-ps         Show status of all remote node containers
+#   deploy-config   Push config from openclaw-agents git repo → live Ceph mount
+#   sync-back       Pull live config edits from Ceph → openclaw-agents git repo
 #
 # Registry workflow (multi-node lab):
 #   Build node:       ./homelab/ctl.sh build && ./homelab/ctl.sh push
@@ -180,13 +182,102 @@ RCEOF
   node-ps)
     podman-compose -f "$NODE_COMPOSE_FILE" ps "$@"
     ;;
+  deploy-config)
+    # Push config files from openclaw-agents git repo → live Ceph mount.
+    # Safe to run at any time. openclaw.json hot-reloads automatically.
+    # Tool/plugin changes require a gateway restart after deploy.
+    #
+    # Syncs:
+    #   jerry/openclaw.json  → config/openclaw.json
+    #   jerry/mcporter.json  → config/mcporter.json
+    #   jerry/workspace/     → jerry-workspace/   (markdown only)
+    #   bobby/workspace/     → bobby-workspace/   (markdown only)
+    #   billy/workspace/     → billy-workspace/   (markdown only)
+    #
+    # Does NOT overwrite cron/jobs.json (use sync-back to pull, then edit in git).
+    AGENTS_REPO="${OPENCLAW_AGENTS_REPO:-}"
+    if [[ -z "$AGENTS_REPO" ]]; then
+      AGENTS_REPO="$(cd "$REPO_ROOT/../openclaw-agents" 2>/dev/null && pwd)" || true
+    fi
+    if [[ -z "$AGENTS_REPO" || ! -d "$AGENTS_REPO" ]]; then
+      echo "error: openclaw-agents repo not found at $REPO_ROOT/../openclaw-agents" >&2
+      echo "       Set OPENCLAW_AGENTS_REPO=/path/to/openclaw-agents to override." >&2
+      exit 1
+    fi
+    CEPH_BASE="${OPENCLAW_CEPH_BASE:-/mnt/services/openclaw-gateway}"
+    CEPH_CONFIG="$CEPH_BASE/config"
+    echo "==> deploy-config: $AGENTS_REPO → $CEPH_BASE"
+    echo "    openclaw.json"
+    cp "$AGENTS_REPO/jerry/openclaw.json" "$CEPH_CONFIG/openclaw.json"
+    echo "    mcporter.json"
+    cp "$AGENTS_REPO/jerry/mcporter.json" "$CEPH_CONFIG/mcporter.json"
+    for agent in jerry bobby billy; do
+      SRC="$AGENTS_REPO/$agent/workspace"
+      DST="$CEPH_BASE/${agent}-workspace"
+      [[ -d "$SRC" ]] || continue
+      echo "    ${agent}-workspace/ (*.md)"
+      rsync -a --include="*.md" --exclude="*" "$SRC/" "$DST/"
+    done
+    echo ""
+    echo "Done. openclaw.json hot-reloads automatically."
+    echo "Run './homelab/ctl.sh restart' if you changed tool/plugin config."
+    ;;
+
+  sync-back)
+    # Pull live config edits from Ceph → openclaw-agents git repo.
+    # Run this after making changes directly via the UI or container CLI.
+    # Then commit in openclaw-agents to persist them.
+    #
+    # Syncs:
+    #   config/openclaw.json   → jerry/openclaw.json
+    #   config/mcporter.json   → jerry/mcporter.json
+    #   config/cron/jobs.json  → jerry/cron/jobs.json
+    #   jerry-workspace/*.md   → jerry/workspace/
+    #   bobby-workspace/*.md   → bobby/workspace/
+    #   billy-workspace/*.md   → billy/workspace/
+    AGENTS_REPO="${OPENCLAW_AGENTS_REPO:-}"
+    if [[ -z "$AGENTS_REPO" ]]; then
+      AGENTS_REPO="$(cd "$REPO_ROOT/../openclaw-agents" 2>/dev/null && pwd)" || true
+    fi
+    if [[ -z "$AGENTS_REPO" || ! -d "$AGENTS_REPO" ]]; then
+      echo "error: openclaw-agents repo not found at $REPO_ROOT/../openclaw-agents" >&2
+      echo "       Set OPENCLAW_AGENTS_REPO=/path/to/openclaw-agents to override." >&2
+      exit 1
+    fi
+    CEPH_BASE="${OPENCLAW_CEPH_BASE:-/mnt/services/openclaw-gateway}"
+    CEPH_CONFIG="$CEPH_BASE/config"
+    echo "==> sync-back: $CEPH_BASE → $AGENTS_REPO"
+    echo "    openclaw.json"
+    cp "$CEPH_CONFIG/openclaw.json" "$AGENTS_REPO/jerry/openclaw.json"
+    echo "    mcporter.json"
+    cp "$CEPH_CONFIG/mcporter.json" "$AGENTS_REPO/jerry/mcporter.json"
+    if [[ -f "$CEPH_CONFIG/cron/jobs.json" ]]; then
+      echo "    cron/jobs.json"
+      mkdir -p "$AGENTS_REPO/jerry/cron"
+      cp "$CEPH_CONFIG/cron/jobs.json" "$AGENTS_REPO/jerry/cron/jobs.json"
+    fi
+    for agent in jerry bobby billy; do
+      SRC="$CEPH_BASE/${agent}-workspace"
+      DST="$AGENTS_REPO/$agent/workspace"
+      [[ -d "$SRC" ]] || continue
+      echo "    ${agent}-workspace/*.md → $agent/workspace/"
+      mkdir -p "$DST"
+      rsync -a --include="*.md" --exclude="*" "$SRC/" "$DST/"
+    done
+    echo ""
+    echo "Done. Review changes:"
+    echo "  cd $AGENTS_REPO && git diff"
+    echo "Commit when ready:"
+    echo "  cd $AGENTS_REPO && git add -A && git commit -m 'sync: live config updates'"
+    ;;
+
   help|--help|-h)
     sed -n '2,/^set /p' "$0" | grep '^#' | sed 's/^# \{0,1\}//'
     exit 0
     ;;
   *)
     echo "error: unknown command '${CMD}'" >&2
-    echo "Usage: $0 {up|down|logs|build|push|pull|restart|ps|cli|node-up|node-down|node-restart|node-logs|node-ps}" >&2
+    echo "Usage: $0 {up|down|logs|build|push|pull|restart|ps|cli|node-up|node-down|node-restart|node-logs|node-ps|deploy-config|sync-back}" >&2
     exit 1
     ;;
 esac
