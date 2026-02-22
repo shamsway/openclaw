@@ -458,32 +458,24 @@ Changes to `models.providers.*` in `openclaw.json` are picked up without a gatew
 restart (hot-reload is active). Changes to `agents.list[*].tools` or `plugins.*`
 require a restart.
 
-**Use `ctl.sh restart` for config-only changes (no new volume mounts):**
+**Use `ctl.sh restart` for config-only changes:**
 
 ```bash
-./homelab/ctl.sh restart   # uses podman restart — preferred
+./homelab/ctl.sh restart   # uses nomad alloc restart
 ```
 
-`ctl.sh restart` calls `podman restart` directly. Both `podman-compose restart` and
-`ctl.sh down && ctl.sh up` reliably break Consul DNS in Podman 4.x. `podman restart`
-is safer but **aardvark-dns can still drop on the first restart** — always verify:
+`ctl.sh restart` now uses `nomad alloc restart` since the gateway is Nomad-managed.
+The old `podman restart homelab_openclaw-gateway_1` no longer works — container names
+are Nomad-generated and change each cycle.
+
+Consul DNS works inside Nomad containers via aardvark-dns → host dnsmasq → Consul.
+`nomad alloc restart` does not disrupt this (Nomad handles the network namespace).
+Verify after restart:
 
 ```bash
-podman exec homelab_openclaw-gateway_1 nslookup nomad.service.consul
-# If NXDOMAIN or connection refused: run ctl.sh restart once more
-./homelab/ctl.sh restart
+ALLOC=$(nomad job status openclaw-gateway | grep ' run ' | awk '{print $1}')
+nomad alloc exec $ALLOC sh -c 'nslookup nomad.service.consul'
+# Should return 2-3 IP addresses
 ```
 
-A second `podman restart` reliably revives aardvark-dns when the first drops it.
-
-**When you must use `down && up`** (e.g. to activate a new volume mount in
-docker-compose.yml):
-
-```bash
-./homelab/ctl.sh down && ./homelab/ctl.sh up
-sleep 2
-podman exec homelab_openclaw-gateway_1 nslookup nomad.service.consul
-# If NXDOMAIN: ./homelab/ctl.sh restart  (may need to run twice)
-```
-
-See `homelab/NETWORKING.md` for full details on the aardvark-dns restart quirk.
+See `homelab/NETWORKING.md` for full DNS details.
