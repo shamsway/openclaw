@@ -196,7 +196,7 @@ and `["jerry", "bobby"]` to Billy in `openclaw-agents/jerry/openclaw.json`.
 
 **Goal:** Enable and configure recommended plugins for memory, multi-agent coordination, automation workflows, and observability
 
-**Status:** ✅ MOSTLY COMPLETE (lobster, llm-task active; memory-lancedb/diagnostics-otel image-ready; thread-ownership pending slack-forwarder)
+**Status:** ✅ COMPLETE (thread-ownership deferred to Phase 4 alongside slack-forwarder)
 
 **Plugins Covered:**
 
@@ -240,21 +240,18 @@ LanceDB uses an embedded native library; no separate database service is require
 
 #### Step 2: Thread Ownership
 
-Prevents multiple agents from claiming the same Slack thread when a message is
-broadcast to multiple bindings. Requires the `slack-forwarder` ownership API to be
-reachable from the gateway container.
+**Status: ⏸️ Deferred to Phase 4.** Requires a custom `slack-forwarder` service (a
+~50-line HTTP service backed by Redis with `SET NX EX` for atomic thread claims).
+Building a custom Nomad service app is out of scope for current phases — deferring
+until Phase 4 (MacBook gateway) when a natural deployment window opens.
 
 **Full spec:** See [`SLACK_FORWARDER_PLAN.md`](SLACK_FORWARDER_PLAN.md) for the
 complete build and deploy plan — API contract, Redis commands, Nomad job spec,
 and final openclaw.json config.
 
-**Prerequisite:** Build and deploy `slack-forwarder` per the plan above. It is a
-~50-line HTTP service backed by Redis (`SET NX EX` for atomic thread claims).
-Once deployed, `slack-forwarder.service.consul:8750` resolves from the container.
-
-The config entry is already present in `openclaw-agents/jerry/openclaw.json` as
-`"thread-ownership": { "enabled": false }`. When slack-forwarder is available,
-change to:
+When ready, `slack-forwarder.service.consul:8750` must be reachable from the
+container. The config entry is already in `openclaw-agents/jerry/openclaw.json` as
+`"thread-ownership": { "enabled": false }`. When slack-forwarder is deployed, change to:
 
 ```json
 "thread-ownership": {
@@ -286,13 +283,11 @@ podman exec homelab_openclaw-gateway_1 which lobster || echo "not found — add 
 If not present, add the install step to `homelab/Dockerfile` before enabling.
 
 **Status: ✅ Done.** Plugin enabled and `lobster` added to Jerry/Bobby/Billy `alsoAllow`
-via `openclaw-agents/jerry/openclaw.json`. No CLI commands needed — config is the
-source of truth.
+via `openclaw-agents/jerry/openclaw.json`. `lobster` CLI binary confirmed present in
+image at `/usr/local/bin/lobster` (version `2026.1.24`, verified 2026-02-22).
 
-> **Note:** The `lobster` CLI binary is not yet installed in the image. The plugin
-> loads successfully, but invoking the `lobster` tool will error until the binary is
-> present. Add an install step to `homelab/Dockerfile` (e.g. download from GitHub
-> releases or build from source).
+**Pending:** End-to-end agent invocation test — confirm an agent can call the `lobster`
+tool and execute a workflow successfully. See lobster validation prompts in the plan.
 
 ---
 
@@ -320,27 +315,16 @@ Jerry's `alsoAllow` via `openclaw-agents/jerry/openclaw.json`. Config:
 
 #### Step 5: Diagnostics (OTel)
 
-Exports OpenClaw metrics/traces to your observability stack via OpenTelemetry.
-Requires an OTEL-compatible collector endpoint (Grafana Alloy, Jaeger, etc.).
+**Status: ✅ Done (fixed 2026-02-22).** Plugin enabled and sending traces to Tempo via
+OTLP HTTP. Endpoint: `http://tempo.service.consul:4318`, serviceName: `openclaw-gateway`.
 
-OTel npm deps are pre-installed in the image as of the 2026-02-17 build. When an
-OTEL collector endpoint is available, enable by adding to `openclaw-agents/jerry/openclaw.json`:
+Three bugs were present in the original config and fixed:
+1. Missing `diagnostics.enabled: true` at the top level (plugin checked this and returned early)
+2. `protocol: "grpc"` — plugin only supports `http/protobuf`; `grpc` triggered a warn+return
+3. Port `4317` (gRPC OTLP) instead of `4318` (HTTP/protobuf OTLP)
 
-```json
-"diagnostics-otel": {
-  "enabled": true,
-  "config": {
-    "endpoint": "http://otel-collector.service.consul:4318",
-    "serviceName": "openclaw-gateway"
-  }
-}
-```
-
-Find the collector address via Consul:
-
-```bash
-CONSUL_HTTP_ADDR=http://consul.service.consul:8500 consul catalog services | grep -i otel
-```
+Tempo confirmed accepting OTLP HTTP POST at port 4318 (200 OK). Traces from
+`serviceName=openclaw-gateway` should appear in Grafana → Tempo.
 
 ---
 
@@ -419,10 +403,11 @@ After editing `openclaw.json`, restart to apply:
 **Deliverables:**
 
 - [x] `memory-core` confirmed active (`memory_search`, `memory_get` tools available)
-- [ ] `thread-ownership` enabled and configured with `forwarderUrl` (when slack-forwarder is available)
-- [x] `lobster` plugin enabled; `lobster` CLI binary added to Dockerfile (`@clawdbot/lobster` via npm)
+- [ ] `thread-ownership` enabled _(deferred to Phase 4 — requires slack-forwarder)_
+- [x] `lobster` plugin enabled; `lobster` CLI binary confirmed at `/usr/local/bin/lobster` v2026.1.24
+- [ ] `lobster` end-to-end agent invocation validated _(pending — test session in progress)_
 - [x] `llm-task` enabled with ZAI GLM defaults
-- [ ] `diagnostics-otel` enabled with OTEL collector endpoint (deps in image; needs collector)
+- [x] `diagnostics-otel` enabled and sending traces to Tempo (port 4318, fixed 2026-02-22)
 - [x] Agent tool allowlists updated for `lobster` and `llm-task`
 - [x] Gateway restarts clean (no config errors in logs)
 - [x] `memory-lancedb` and `diagnostics-otel` npm deps baked into image (2026-02-17 build)
@@ -1976,18 +1961,48 @@ cp /mnt/services/openclaw-gateway/config/mcporter.json \
 
 ---
 
-### [ ] Discord reconnection loop
+### [x] Discord reconnection loop
 
-**Status:** Observed — not yet investigated.
-
-Gateway logs show Discord WebSocket closing repeatedly with codes 1000/1005 and entering
-a backoff-resume cycle. This is in the upstream `@buape/carbon` library. The first
-crash (14:37 UTC 2026-02-22) was an uncaught exception in the zombie-connection guard;
-subsequent reconnects have been clean but frequent. Monitor for impact on agent responsiveness.
+**Status:** Resolved (2026-02-22). Gateway restart via `nomad alloc restart` cleared
+the reconnection loop. Discord has been stable since. Root cause was likely stale
+WebSocket state from the earlier failed `podman restart` attempts. Monitor for
+recurrence; if it returns, `nomad alloc restart` is the fix.
 
 ---
 
 ## Changelog
+
+### v3.2 (2026-02-22)
+
+- **Fixed `diagnostics-otel` — traces now reaching Tempo:** Three config bugs prevented
+  the plugin from starting: (1) missing `diagnostics.enabled: true`, (2) unsupported
+  `protocol: "grpc"` (plugin only handles `http/protobuf`), (3) wrong port `4317` (gRPC)
+  vs `4318` (HTTP). Fixed in `jerry/openclaw.json`. Confirmed Tempo accepts OTLP HTTP
+  at `http://tempo.service.consul:4318`. Traces appear under `serviceName=openclaw-gateway`.
+
+- **`lobster` CLI binary confirmed in image:** `/usr/local/bin/lobster` v2026.1.24 is
+  present. Plugin is enabled and ready for end-to-end validation. Stale "not yet installed"
+  note in plan removed.
+
+- **`thread-ownership` deferred to Phase 4:** Requires building a custom `slack-forwarder`
+  Nomad service — out of scope for current phases. Will address alongside Phase 4
+  (MacBook gateway) when a natural window opens.
+
+- **`ctl.sh restart` fixed for Nomad:** Was hardcoded to `homelab_openclaw-gateway_1`
+  (old docker-compose name). Updated to use `nomad alloc restart` with auto-resolved alloc ID.
+
+- **`ctl.sh gateway-logs` and `gateway-logs-err` added:** Convenience wrappers for
+  `nomad alloc logs -f` (stdout) and `nomad alloc logs -f -stderr` (stderr).
+
+- **Agent workspace docs updated:** Bobby TOOLS.md and HEARTBEAT.md now include full
+  monitoring stack (Grafana, Prometheus, Loki, Tempo, Gatus, Uptime Kuma, Phoenix, Alloy).
+  All three agents' AGENTS.md updated with Setup & Baselining Mode section. Jerry TOOLS.md
+  updated with monitoring stack quick-reference.
+
+- **Discord reconnection loop resolved:** Cleared by `nomad alloc restart`. Gateway
+  stable since restart.
+
+---
 
 ### v3.1 (2026-02-22)
 
