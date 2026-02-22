@@ -6,15 +6,15 @@
     },
     "mcp-nomad-server": {
       "type": "http",
-      "url": "http://192.168.252.8:30859/mcp"
+      "url": "http://mcp-nomad-server.service.consul:30859/mcp"
     },
     "infra-mcp-server": {
       "type": "http",
-      "url": "http://192.168.252.6:26378/mcp"
+      "url": "http://infra-mcp-server.service.consul:26378/mcp"
     },
     "tailscale-mcp-server": {
       "type": "http",
-      "url": "http://192.168.252.7:23084/mcp"
+      "url": "http://tailscale-mcp-server.service.consul:23084/mcp"
     },
     "gcp-mcp-server": {
       "type": "http",
