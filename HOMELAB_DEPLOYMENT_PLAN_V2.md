@@ -1888,7 +1888,7 @@ consul kv delete -recurse /openclaw/agents/
 - [ ] Obsidian vault sync for human-readable state
 - [ ] Advanced Bobby skills (auto-remediation)
 - [ ] Billy task queue system via Consul KV
-- [ ] Traefik HTTPS with Let's Encrypt
+- ✅ Traefik HTTPS with Let's Encrypt (`openclaw.shamsway.net`, via `websecure` entrypoint)
 - [ ] Grafana dashboard for agent metrics
 
 ### Long-term (Months 4-6)
@@ -1933,7 +1933,83 @@ consul kv delete -recurse /openclaw/agents/
 
 ---
 
+## Open Issues
+
+### [ ] Config location: `/mnt/services/` vs `openclaw-agents` git repo
+
+**Status:** Unresolved — decision pending.
+
+The Nomad job was deployed with volumes mounted from `/mnt/services/openclaw-gateway/`
+(the standard Nomad service data path), but the agent config was previously tracked in
+`/opt/homelab/data/home/git/openclaw-agents/` (a git repo). These are now out of sync.
+
+**Current drift** (live vs `openclaw-agents/jerry/`):
+
+| File | Live path | Diverges? | Reason |
+|---|---|---|---|
+| `openclaw.json` | `/mnt/services/openclaw-gateway/config/` | ✅ Yes | `bind` changed to `"lan"`, `baseUrl` + updated `trustedProxies` added (2026-02-22), extra `"cron"` deny entry |
+| `mcporter.json` | `/mnt/services/openclaw-gateway/config/` | ✅ Yes | Updated to Consul DNS names (2026-02-22) |
+| `.mcp.json` | `homelab/` in openclaw repo | ✅ Synced | Committed to git (2026-02-22) |
+
+**Options (see session notes from 2026-02-22):**
+
+- **Option A (Recommended):** Update the Nomad job volumes to mount directly from
+  `openclaw-agents/jerry/` — consistent with original plan, cleanest long-term solution.
+  Requires re-running the job with updated volume paths and syncing the live changes to
+  the git repo first.
+- **Option B:** Replace `/mnt/services/openclaw-gateway/config/` with a symlink to
+  `openclaw-agents/jerry/`. No job spec change needed; symlink must survive host reboots.
+- **Option C:** Move the `openclaw-agents` repo to `/mnt/services/` to unify the paths.
+
+**Before taking any action:** Copy the live openclaw.json into `openclaw-agents/jerry/`
+and commit to capture the 2026-02-22 changes:
+```bash
+cp /mnt/services/openclaw-gateway/config/openclaw.json \
+   /opt/homelab/data/home/git/openclaw-agents/jerry/openclaw.json
+cp /mnt/services/openclaw-gateway/config/mcporter.json \
+   /opt/homelab/data/home/git/openclaw-agents/jerry/mcporter.json
+# Then commit in openclaw-agents repo
+```
+
+---
+
+### [ ] Discord reconnection loop
+
+**Status:** Observed — not yet investigated.
+
+Gateway logs show Discord WebSocket closing repeatedly with codes 1000/1005 and entering
+a backoff-resume cycle. This is in the upstream `@buape/carbon` library. The first
+crash (14:37 UTC 2026-02-22) was an uncaught exception in the zombie-connection guard;
+subsequent reconnects have been clean but frequent. Monitor for impact on agent responsiveness.
+
+---
+
 ## Changelog
+
+### v3.1 (2026-02-22)
+
+- **Nomad job deployed:** `openclaw-gateway` running as alloc `09627a1e` on `jerry-agent`.
+  Volumes mounted from `/mnt/services/openclaw-gateway/` (diverges from original plan which
+  used `openclaw-agents/jerry/` — see Open Issues).
+- **Traefik routing confirmed:** Service registered in Consul as `openclaw-gateway` at
+  `192.168.252.6:<dynamic>`. Domain is `openclaw.shamsway.net` (not `jerry.shamsway.net`
+  as in the plan spec — update job spec accordingly). TLS handled by `websecure` entrypoint.
+- **Consul DNS confirmed working natively inside Nomad alloc:** All `.service.consul` names
+  resolve without aardvark-dns. Eliminates the DNS restart quirk entirely.
+- **`openclaw.json` updated (live only, not yet in git):**
+  - `gateway.baseUrl = "http://127.0.0.1:18789"` — fixes subagent announce timeout caused
+    by hairpin NAT failure when gateway tries to self-connect via bridge IP `10.0.2.100`.
+  - `gateway.trustedProxies` extended to include `10.0.2.0/24` — Traefik connects from
+    the Nomad CNI bridge network; without this, every webchat connection logs a warning and
+    the client is not treated as local.
+  - `gateway.bind = "lan"` (was `"auto"` in git repo) — set during Nomad deployment.
+- **`homelab/.mcp.json` updated and committed:** Replaced 3 hardcoded LAN IPs with Consul
+  DNS names (`mcp-nomad-server`, `infra-mcp-server`, `tailscale-mcp-server`). `gcp-mcp-server`
+  was already using Consul DNS. Verified all names resolve correctly from inside the alloc.
+- **`mcporter.json` regenerated (live only, not yet in git):** Updated to use Consul DNS
+  names; visible immediately inside container via bind mount.
+- **Open issue logged:** Config location drift (`/mnt/services/` vs git repo) — decision
+  on resolution approach pending.
 
 ### v3.0 (2026-02-20)
 
