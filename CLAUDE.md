@@ -13,43 +13,94 @@ separate agent-config repo at `/opt/homelab/data/home/git/openclaw-agents` (bran
 
 ## Homelab Deployment Quick Reference
 
-| Item | Value |
-|---|---|
-| Running container | `homelab_openclaw-gateway_1` |
-| Image | `registry.service.consul:8082/openclaw-homelab:2026.2.16` |
-| Gateway port | `18789` (webchat UI at `http://localhost:18789`) |
-| Agent config repo | `/opt/homelab/data/home/git/openclaw-agents` (branch `main`) |
-| Agent workspace files | `../openclaw-agents/<agent>/workspace/` (TOOLS.md, SOUL.md, etc.) |
-| Agent config inside container | `/home/node/.openclaw/openclaw.json` (mounted from host) |
-| mcporter config (persisted) | `../openclaw-agents/jerry/mcporter.json` → `/root/.mcporter/mcporter.json` |
-| Gateway management | `homelab/ctl.sh {up|down|restart|logs|ps|cli}` |
-| DNS reference | `homelab/NETWORKING.md` |
+| Item                        | Value                                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| Deployment                  | Nomad job `openclaw-gateway` (Terraform: `octant-private-main/terraform/openclaw-gateway/`) |
+| Image                       | `registry.service.consul:8082/openclaw-homelab:2026.2.16`                                   |
+| Web UI                      | `https://openclaw.shamsway.net/?token=<gateway-token>`                                      |
+| Agent config (Ceph)         | `/mnt/services/openclaw-gateway/config/` → `/home/node/.openclaw/`                          |
+| Agent workspace files       | `/mnt/services/openclaw-gateway/{jerry,bobby,billy}-workspace/`                             |
+| mcporter config (persisted) | `/mnt/services/openclaw-gateway/config/mcporter.json` → `/root/.mcporter/mcporter.json`     |
+| Nomad job management        | `nomad job {run,stop,status} openclaw-gateway`                                              |
+| DNS reference               | `homelab/NETWORKING.md`                                                                     |
+
+### Get current alloc ID
+
+```bash
+nomad job status openclaw-gateway | grep ' run ' | awk '{print $1}'
+```
 
 ---
 
 ## Common Troubleshooting Commands
 
 ```bash
-# Container status
-podman ps | grep openclaw
+# Get current alloc ID (needed for exec/logs)
+ALLOC=$(nomad job status openclaw-gateway | grep ' run ' | awk '{print $1}')
 
 # Follow live logs
-podman logs -f homelab_openclaw-gateway_1 2>&1
+nomad alloc logs -f $ALLOC
 
 # Filter for run events (tool calls, agent start/end)
-podman logs -f homelab_openclaw-gateway_1 2>&1 | grep -E '"tool|agent.start|agent.end|exec'
+nomad alloc logs -f $ALLOC | grep -E '"tool|agent.start|agent.end|exec'
 
-# Plugin status
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs plugins list
+# Exec into container (note: use 'node /app/openclaw.mjs', not 'openclaw' — binary not in PATH)
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs plugins list'
 
 # Model/provider probe (verifies auth + connectivity)
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs models status --agent jerry --probe --probe-provider zai
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs models status --agent jerry --probe --probe-provider zai'
 
 # Agent list
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs agents list
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs agents list'
 
 # Config validation
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs models status --agent jerry
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs models status --agent jerry'
+```
+
+---
+
+## Nomad CLI Reference
+
+All OpenClaw CLI commands use `node /app/openclaw.mjs` — the `openclaw` binary is **not** in
+PATH inside the Nomad container. Use `nomad alloc exec` to run them:
+
+```bash
+ALLOC=$(nomad job status openclaw-gateway | grep ' run ' | awk '{print $1}')
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs <command>'
+```
+
+### Device Pairing
+
+Browser connections and remote node connections require pairing approval.
+
+```bash
+# List all devices (pending + paired)
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs devices list'
+
+# List only pending pairing requests
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs nodes pending'
+
+# Approve a pending request (get requestId from devices list)
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs devices approve <requestId>'
+```
+
+**Note:** The first time you open the Web UI in a browser, it creates a pending device
+pairing request that must be approved. The browser connection shows with an empty IP in
+`devices list`. Approve it to gain full access.
+
+### Web UI Access
+
+```
+https://openclaw.shamsway.net/?token=<gateway-token>
+```
+
+The `?token=` URL parameter authenticates on first load and stores the token in
+`localStorage` — subsequent visits to `https://openclaw.shamsway.net/` work without it.
+
+Retrieve the token:
+
+```bash
+nomad var get -out json nomad/jobs/openclaw-gateway | jq -r '.Items.openclaw_gateway_token'
 ```
 
 ---
@@ -57,14 +108,16 @@ podman exec homelab_openclaw-gateway_1 node openclaw.mjs models status --agent j
 ## Cron Command Reference
 
 ```bash
+ALLOC=$(nomad job status openclaw-gateway | grep ' run ' | awk '{print $1}')
+
 # List all cron jobs with status and next/last run times
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron list
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs cron list'
 
 # Show run history for a job (--id required)
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron runs --id <job-id>
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs cron runs --id <job-id>'
 
 # Trigger a job immediately (debug mode — bypasses schedule)
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron run <job-id>
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs cron run <job-id>'
 
 # Add a repeating job:
 #   --cron       5-field cron expression (*/15 * * * *)
@@ -75,32 +128,31 @@ podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron run <job-id>
 #   --session    isolated (default for cron) or main
 #   --wake       now (resume/create immediately) or next-heartbeat
 #   --best-effort-deliver  don't mark job as error if Discord/Slack delivery fails
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron add \
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs cron add \
   --name "Bobby heartbeat" \
   --cron "*/15 * * * *" \
   --agent bobby \
   --announce --channel discord --to "channel:1472975617111625902" \
   --session isolated --wake now \
   --best-effort-deliver \
-  --message "Run your full heartbeat checklist from HEARTBEAT.md..."
+  --message "Run your full heartbeat checklist from HEARTBEAT.md..."'
 
 # Edit an existing job (patch specific fields)
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron edit --id <job-id> \
-  --name "New name"
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs cron edit --id <job-id> --name "New name"'
 
 # Disable/enable/remove
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron disable <job-id>
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron enable <job-id>
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron rm <job-id>
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs cron disable <job-id>'
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs cron enable <job-id>'
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs cron rm <job-id>'
 
 # View scheduler status
-podman exec homelab_openclaw-gateway_1 node openclaw.mjs cron status
+nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs cron status'
 ```
 
-**Cron run history lives at:** `openclaw-agents/jerry/cron/runs/<job-id>.jsonl`
+**Cron run history lives at:** `/mnt/services/openclaw-gateway/config/cron/runs/<job-id>.jsonl`
 Each entry contains `status`, `error`, `summary`, `usage` (token counts), and `sessionId`.
 
-**Cron jobs file:** `openclaw-agents/jerry/cron/jobs.json`
+**Cron jobs file:** `/mnt/services/openclaw-gateway/config/cron/jobs.json`
 The `state.consecutiveErrors` counter indicates how many consecutive failures a job has.
 
 ---
@@ -151,11 +203,13 @@ jq '{mcpServers:(.mcpServers|to_entries|map({key,value:{baseUrl:.value.url}})|fr
 ```
 
 Then restart the container to pick up the change:
+
 ```bash
 ./homelab/ctl.sh restart
 ```
 
 If you need to patch the running container without a restart (e.g. for a quick fix):
+
 ```bash
 # Generate correct file and copy into container
 jq '{mcpServers:(.mcpServers|to_entries|map({key,value:{baseUrl:.value.url}})|from_entries)}' \
@@ -174,13 +228,13 @@ fallback when no volume is mounted). Keep both in sync.
 Files that live in the container image but need to survive restarts are mounted as
 volumes from `openclaw-agents/jerry/`. Current persistent overrides:
 
-| Container path | Host path | Purpose |
-|---|---|---|
-| `/home/node/.openclaw/` | `openclaw-agents/jerry/` | All agent config, sessions, cron |
-| `/home/node/.openclaw/workspace` | `openclaw-agents/jerry/workspace/` | Jerry workspace files |
-| `/home/node/.openclaw/workspace-bobby` | `openclaw-agents/bobby/workspace/` | Bobby workspace |
-| `/home/node/.openclaw/workspace-billy` | `openclaw-agents/billy/workspace/` | Billy workspace |
-| `/root/.mcporter/mcporter.json` | `openclaw-agents/jerry/mcporter.json` | MCP server URLs |
+| Container path                         | Host path                             | Purpose                          |
+| -------------------------------------- | ------------------------------------- | -------------------------------- |
+| `/home/node/.openclaw/`                | `openclaw-agents/jerry/`              | All agent config, sessions, cron |
+| `/home/node/.openclaw/workspace`       | `openclaw-agents/jerry/workspace/`    | Jerry workspace files            |
+| `/home/node/.openclaw/workspace-bobby` | `openclaw-agents/bobby/workspace/`    | Bobby workspace                  |
+| `/home/node/.openclaw/workspace-billy` | `openclaw-agents/billy/workspace/`    | Billy workspace                  |
+| `/root/.mcporter/mcporter.json`        | `openclaw-agents/jerry/mcporter.json` | MCP server URLs                  |
 
 When adding a new baked-in config that needs to persist: create the file in the
 appropriate `openclaw-agents/<agent>/` directory and add a volume mount in
@@ -191,6 +245,7 @@ appropriate `openclaw-agents/<agent>/` directory and add a volume mount in
 ## Consul DNS (Container Networking)
 
 Consul DNS works natively inside the container via:
+
 ```
 container → aardvark-dns (10.89.2.1) → host dnsmasq → Consul :8600
 ```
@@ -199,6 +254,7 @@ No `extra_hosts` or workarounds required. See `homelab/NETWORKING.md` for full d
 verification commands, and the Podman 5.x migration path.
 
 Quick verify:
+
 ```bash
 podman exec homelab_openclaw-gateway_1 nslookup nomad.service.consul
 # Should return 2-3 IP addresses
@@ -216,7 +272,7 @@ runs completing in 3–6 seconds with zero tool-execution events between `agent.
 
 **Root cause:** The ZAI Coding Plan endpoint (`https://api.z.ai/api/coding/paas/v4`) does
 not return structured tool calls in OpenAI function-calling format. The model emits text
-*describing* tool calls instead of structured JSON.
+_describing_ tool calls instead of structured JSON.
 
 **Fix:** Use ZAI's Anthropic-compatible endpoint with `api: "anthropic-messages"`:
 
@@ -240,12 +296,12 @@ Probe confirms ~15s first-call latency (normal for GLM cold start).
 **Symptom:** Agent has `profile: "coding"` set but cannot call `exec`, `read`, `write`,
 `session_status`, or any coding tools. Only the explicitly listed extras work.
 
-**Root cause:** `tools.allow` creates a **strict allowlist** that *replaces* the profile's
-tools. If `allow: ["group:web", "message", "agents_list"]` is set, those are the *only*
+**Root cause:** `tools.allow` creates a **strict allowlist** that _replaces_ the profile's
+tools. If `allow: ["group:web", "message", "agents_list"]` is set, those are the _only_
 tools available — the entire coding profile (exec, read, write, session_status, etc.) is
 filtered out.
 
-**Fix:** Use `alsoAllow` to *add* tools on top of the profile without restricting it:
+**Fix:** Use `alsoAllow` to _add_ tools on top of the profile without restricting it:
 
 ```json
 "tools": {
@@ -296,6 +352,7 @@ days.
 
 **Fix (preventive):** Add `--best-effort-deliver` when creating cron jobs. This marks
 the job as `ok` even if delivery fails, and logs the delivery error separately:
+
 ```bash
 node openclaw.mjs cron add ... --best-effort-deliver --message "message"
 ```
@@ -319,6 +376,7 @@ wrong port for `tailscale-mcp-server`). This is now fixed: `jerry/mcporter.json`
 mounted as a volume and takes precedence over the baked-in version.
 
 **Verify fix is active:**
+
 ```bash
 podman exec homelab_openclaw-gateway_1 cat /root/.mcporter/mcporter.json
 # Should show 5 servers: context7, mcp-nomad-server, infra-mcp-server,
@@ -331,16 +389,16 @@ podman exec homelab_openclaw-gateway_1 cat /root/.mcporter/mcporter.json
 
 From `src/agents/tool-policy.ts`:
 
-| Group | Expands to |
-|---|---|
-| `group:fs` | `read, write, edit, apply_patch` |
-| `group:runtime` | `exec, process` |
-| `group:sessions` | `sessions_list, sessions_history, sessions_send, sessions_spawn, session_status` |
-| `group:memory` | `memory_search, memory_get` |
-| `group:web` | `web_search, web_fetch` |
-| `group:messaging` | `message` |
-| `group:ui` | `browser, canvas` |
-| `group:automation` | `cron, gateway` |
+| Group              | Expands to                                                                       |
+| ------------------ | -------------------------------------------------------------------------------- |
+| `group:fs`         | `read, write, edit, apply_patch`                                                 |
+| `group:runtime`    | `exec, process`                                                                  |
+| `group:sessions`   | `sessions_list, sessions_history, sessions_send, sessions_spawn, session_status` |
+| `group:memory`     | `memory_search, memory_get`                                                      |
+| `group:web`        | `web_search, web_fetch`                                                          |
+| `group:messaging`  | `message`                                                                        |
+| `group:ui`         | `browser, canvas`                                                                |
+| `group:automation` | `cron, gateway`                                                                  |
 
 **`coding` profile** allows: `group:fs + group:runtime + group:sessions + group:memory + image`
 
@@ -359,6 +417,7 @@ When adding any provider that has an Anthropic-compatible endpoint, use:
 ```
 
 The `anthropic-messages` adapter automatically handles:
+
 - Structured tool calls (Anthropic `tool_use` blocks)
 - Tool result pairing validation
 - Thinking blocks (for reasoning models)

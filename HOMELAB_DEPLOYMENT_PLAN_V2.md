@@ -1423,13 +1423,14 @@ EOT
 
 **Accessing the gateway after migration:**
 
-| Method | URL | When to use |
-|---|---|---|
-| Traefik HTTPS | `https://jerry.shamsway.net` | Primary — webchat UI, API clients |
-| Direct HTTP | `http://<jerry-ip>:<consul-port>` | Debug fallback |
-| Health check | `https://jerry.shamsway.net/health` | Monitoring |
+| Method        | URL                                 | When to use                       |
+| ------------- | ----------------------------------- | --------------------------------- |
+| Traefik HTTPS | `https://jerry.shamsway.net`        | Primary — webchat UI, API clients |
+| Direct HTTP   | `http://<jerry-ip>:<consul-port>`   | Debug fallback                    |
+| Health check  | `https://jerry.shamsway.net/health` | Monitoring                        |
 
 Find the current direct port:
+
 ```bash
 NOMAD_ADDR=http://nomad.service.consul:4646 nomad job status openclaw-gateway | grep -A5 "Allocation"
 # or
@@ -1455,6 +1456,7 @@ ports the host port changes on each allocation restart. Two options:
    `jerry-agent` and no other job uses 18790 on that node.
 
 **Run the job:**
+
 ```bash
 NOMAD_ADDR=http://nomad.service.consul:4646 nomad job run homelab/openclaw-gateway.nomad.hcl
 ```
@@ -1671,6 +1673,7 @@ openclaw cron add \
 >   --session isolated --wake now --best-effort-deliver \
 >   --message "Run your full heartbeat checklist from HEARTBEAT.md..."
 > ```
+>
 > Note: use `--message`, not `--` separator — the `--` syntax is not supported.
 
 ---
@@ -1988,28 +1991,64 @@ subsequent reconnects have been clean but frequent. Monitor for impact on agent 
 
 ### v3.1 (2026-02-22)
 
-- **Nomad job deployed:** `openclaw-gateway` running as alloc `09627a1e` on `jerry-agent`.
-  Volumes mounted from `/mnt/services/openclaw-gateway/` (diverges from original plan which
-  used `openclaw-agents/jerry/` — see Open Issues).
-- **Traefik routing confirmed:** Service registered in Consul as `openclaw-gateway` at
-  `192.168.252.6:<dynamic>`. Domain is `openclaw.shamsway.net` (not `jerry.shamsway.net`
-  as in the plan spec — update job spec accordingly). TLS handled by `websecure` entrypoint.
-- **Consul DNS confirmed working natively inside Nomad alloc:** All `.service.consul` names
-  resolve without aardvark-dns. Eliminates the DNS restart quirk entirely.
-- **`openclaw.json` updated (live only, not yet in git):**
-  - `gateway.baseUrl = "http://127.0.0.1:18789"` — fixes subagent announce timeout caused
-    by hairpin NAT failure when gateway tries to self-connect via bridge IP `10.0.2.100`.
-  - `gateway.trustedProxies` extended to include `10.0.2.0/24` — Traefik connects from
-    the Nomad CNI bridge network; without this, every webchat connection logs a warning and
-    the client is not treated as local.
-  - `gateway.bind = "lan"` (was `"auto"` in git repo) — set during Nomad deployment.
-- **`homelab/.mcp.json` updated and committed:** Replaced 3 hardcoded LAN IPs with Consul
-  DNS names (`mcp-nomad-server`, `infra-mcp-server`, `tailscale-mcp-server`). `gcp-mcp-server`
-  was already using Consul DNS. Verified all names resolve correctly from inside the alloc.
-- **`mcporter.json` regenerated (live only, not yet in git):** Updated to use Consul DNS
-  names; visible immediately inside container via bind mount.
-- **Open issue logged:** Config location drift (`/mnt/services/` vs git repo) — decision
-  on resolution approach pending.
+- **Nomad/Terraform deployment live:** Gateway migrated from Podman compose to Nomad job managed
+  by Terraform (`octant-private-main/terraform/openclaw-gateway/`). Job is healthy and reachable
+  at `https://openclaw.shamsway.net/`.
+
+- **Critical fix — `HOME=/home/node`:** The Nomad container runs all processes as UID 0 (root)
+  due to rootless Podman UID namespace remapping. Without `HOME=/home/node` in the env block,
+  OpenClaw reads `/root/.openclaw/openclaw.json` (image-baked, no gateway section) instead of
+  the Ceph-mounted config at `/home/node/.openclaw/`. **Symptom:** gateway binds to
+  `127.0.0.1:18789` regardless of `gateway.bind` in your config file. Fix: add `HOME = "/home/node"`
+  to the task `env` block.
+
+- **Critical fix — `gateway.bind: "lan"`:** The onboard wizard writes `bind: "auto"` which
+  resolves to loopback inside a container. Traefik cannot reach a loopback-bound gateway.
+  Set `gateway.bind: "lan"` explicitly in `openclaw.json`.
+
+- **Critical fix — `trustedProxies`:** When Traefik proxies requests it adds `X-Forwarded-For`
+  headers. OpenClaw rejects connections from any IP sending proxy headers that is not in
+  `trustedProxies`. Add all homelab node IPs: `["192.168.252.6", "192.168.252.7", "192.168.252.8"]`.
+  Without this the gateway returns errors and Traefik reports 502 Bad Gateway.
+
+- **Volume mount typo fixed:** `cd -workspace` → `jerry-workspace` in
+  `terraform/openclaw-gateway/openclaw-gateway.nomad.hcl`. The typo caused a container start
+  failure (`statfs /mnt/services/openclaw-gateway/cd -workspace: no such file or directory`).
+
+- **Added env vars:** `CONSUL_HTTP_ADDR = "http://consul.service.consul:8500"` and
+  `NOMAD_ADDR = "http://nomad.service.consul:4646"` added to the Nomad task env block.
+  The Dockerfile bakes `127.0.0.1:8500` as the Consul default — this is the container loopback
+  in a Nomad task and silently breaks all `consul` CLI commands run by agents.
+
+- **Web UI access:** Control UI is live at `https://openclaw.shamsway.net/`. Use the
+  `?token=<gateway-token>` URL parameter to authenticate on first load — the token is stored in
+  `localStorage` after that. The gateway token is in Nomad variable `nomad/jobs/openclaw-gateway`
+  key `openclaw_gateway_token` (also in 1Password vault Dev → `service_openclaw`).
+
+- **Device pairing — browser:** Opening the Web UI creates a pending device pairing request.
+  Approve it via:
+
+  ```bash
+  ALLOC=$(nomad job status openclaw-gateway | grep ' run ' | awk '{print $1}')
+  nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs devices list'
+  nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs devices approve <requestId>'
+  ```
+
+  Note: `openclaw` is **not** in PATH in the Nomad container. Always use
+  `node /app/openclaw.mjs <command>` (PID 1 is `/usr/local/bin/node`).
+
+- **Billy `cron` tool enabled:** Added `"cron"` to Billy's `alsoAllow` and removed it from
+  `deny` in `openclaw.json`. Root cause: Billy's Bobby session reset procedure called
+  `node /app/openclaw.mjs` via exec, which triggered OpenClaw's exec preflight scanner
+  (regex: `node <file.js>`) on the compiled bundle. The bundle contains a literal
+  `$OPENCLAW_STATE_DIR` in a help string, firing a false-positive "shell variable injection"
+  error. With the `cron` tool available directly, Billy manages cron jobs without exec.
+
+- **Phase 1 Nomad deliverables now complete:**
+  - ✅ Nomad job spec: `terraform/openclaw-gateway/openclaw-gateway.nomad.hcl`
+  - ✅ Health checks passing (TCP check on bridge port; HTTP via Traefik)
+  - ✅ Consul service registration working (`openclaw-gateway`, `openclaw-bridge`)
+  - ✅ Web UI accessible at `https://openclaw.shamsway.net/`
 
 ### v3.0 (2026-02-20)
 
