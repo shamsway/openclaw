@@ -22,6 +22,8 @@
 #   node-restart <n> Restart a remote node container
 #   node-logs <n>   Follow logs for a remote node container
 #   node-ps         Show status of all remote node containers
+#   gateway-logs    Follow stdout logs for the running openclaw-gateway Nomad alloc
+#   gateway-logs-err Follow stderr logs for the running openclaw-gateway Nomad alloc
 #   deploy-config   Push config from openclaw-agents git repo → live Ceph mount
 #   sync-back       Pull live config edits from Ceph → openclaw-agents git repo
 #
@@ -186,6 +188,22 @@ RCEOF
   node-ps)
     podman-compose -f "$NODE_COMPOSE_FILE" ps "$@"
     ;;
+  gateway-logs)
+    ALLOC=$(nomad job status openclaw-gateway | grep ' run ' | awk '{print $1}')
+    if [[ -z "$ALLOC" ]]; then
+      echo "error: no running openclaw-gateway allocation found" >&2
+      exit 1
+    fi
+    nomad alloc logs -f "$ALLOC" "$@"
+    ;;
+  gateway-logs-err)
+    ALLOC=$(nomad job status openclaw-gateway | grep ' run ' | awk '{print $1}')
+    if [[ -z "$ALLOC" ]]; then
+      echo "error: no running openclaw-gateway allocation found" >&2
+      exit 1
+    fi
+    nomad alloc logs -f -stderr "$ALLOC" "$@"
+    ;;
   deploy-config)
     # Push config files from openclaw-agents git repo → live Ceph mount.
     # Safe to run at any time. openclaw.json hot-reloads automatically.
@@ -281,7 +299,7 @@ RCEOF
     ;;
   *)
     echo "error: unknown command '${CMD}'" >&2
-    echo "Usage: $0 {up|down|logs|build|push|pull|restart|ps|cli|node-up|node-down|node-restart|node-logs|node-ps|deploy-config|sync-back}" >&2
+    echo "Usage: $0 {up|down|logs|build|push|pull|restart|ps|cli|node-up|node-down|node-restart|node-logs|node-ps|gateway-logs|gateway-logs-err|deploy-config|sync-back}" >&2
     exit 1
     ;;
 esac
