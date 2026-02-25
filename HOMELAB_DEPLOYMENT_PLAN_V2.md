@@ -1935,8 +1935,8 @@ The Nomad job was deployed with volumes mounted from `/mnt/services/openclaw-gat
 
 | File | Live path | Diverges? | Reason |
 |---|---|---|---|
-| `openclaw.json` | `/mnt/services/openclaw-gateway/config/` | ✅ Yes | `bind` changed to `"lan"`, `baseUrl` + updated `trustedProxies` added (2026-02-22), extra `"cron"` deny entry |
-| `mcporter.json` | `/mnt/services/openclaw-gateway/config/` | ✅ Yes | Updated to Consul DNS names (2026-02-22) |
+| `openclaw.json` | `/mnt/services/openclaw-gateway/config/` | ✅ Synced | Both paths updated in sync as of 2026-02-25 — `bind: "custom"`, `discovery.mdns.mode: "off"`, `otel-collector` endpoint, `bestEffort` on Billy daily summary |
+| `mcporter.json` | `/mnt/services/openclaw-gateway/config/` | ✅ Synced | Consul DNS names committed to `openclaw-agents/jerry/` (2026-02-22) |
 | `.mcp.json` | `homelab/` in openclaw repo | ✅ Synced | Committed to git (2026-02-22) |
 
 **Options (see session notes from 2026-02-22):**
@@ -1971,6 +1971,101 @@ recurrence; if it returns, `nomad alloc restart` is the fix.
 ---
 
 ## Changelog
+
+### v3.3 (2026-02-25)
+
+- **Fixed `callGateway` hairpin NAT failure — cron announce delivery now uses loopback:**
+  Inside a Nomad CNI network, a container cannot connect to its own CNI IP (no hairpin NAT).
+  `gateway.bind: "lan"` caused `callGateway` to build a `ws://10.0.2.x:18789` URL for IPC
+  announce delivery, which always timed out. Fixed by changing `bind: "custom"` in
+  `openclaw.json`. The server still binds `0.0.0.0` via the `OPENCLAW_GATEWAY_BIND=lan` env
+  var in the Nomad job. The callGateway client now uses `ws://127.0.0.1:18789` (loopback).
+  Confirmed via `cron status`: `Gateway: local · ws://127.0.0.1:18789 (local loopback)`.
+
+- **Bonjour/mDNS disabled — eliminates "gateway name conflict" log noise:**
+  Set `discovery.mdns.mode: "off"` in `openclaw.json`. No env var or host networking change
+  needed. Takes effect on next gateway restart. The name conflict was cosmetic (stale mDNS
+  record from a previous Nomad allocation), but mDNS has no utility inside a Nomad container
+  and adds noise.
+
+- **Billy daily summary recreated with `bestEffort: true`:**
+  Job `164d53d4` had `consecutiveErrors: 3` and `lastStatus: "error"` from Discord announce
+  delivery failures. Removed and re-added as `766315ce` with `--best-effort-deliver`. All
+  three cron jobs (Bobby heartbeat, Billy session reset, Billy daily summary) now use
+  `bestEffort: true`.
+
+- **Cron announce delivery root cause documented — hardcoded 15s timeout vs GLM ~28s latency:**
+  Announce delivery calls `callGateway` with `timeoutMs: 15_000` (hardcoded in
+  `src/agents/subagent-announce.ts`). The GLM model on ZAI takes ~28s to respond
+  (first-call cold start), consistently exceeding the 15s limit. This cannot be fixed via
+  config — requires a code change + new image. `bestEffortDeliver` on all jobs suppresses
+  error state accumulation in the meantime. Investigation of GLM Flash models as a
+  potentially faster alternative is planned (see below).
+
+- **OTel traces rerouted through `otel-collector` instead of direct Tempo:**
+  Changed `diagnostics.otel.endpoint` from `http://tempo.service.consul:4318` to
+  `http://otel-collector.service.consul:4328`. The OTel collector (`otel-collector` Nomad
+  job, running on `bobby-agent`) uses non-standard ports (4327 gRPC / 4328 HTTP) to avoid
+  collision with Tempo's standard 4317/4318. The HTTP port is static (not dynamic) so the
+  DNS + hardcoded port pattern is reliable. Requires gateway restart to take effect.
+
+- **`openclaw-agents/jerry/openclaw.json` synced with live config:**
+  Both `/mnt/services/openclaw-gateway/config/openclaw.json` and
+  `openclaw-agents/jerry/openclaw.json` are now in sync. Config drift open issue updated.
+
+---
+
+### GLM Model Latency Research Plan
+
+**Problem:** ZAI/GLM-4.7 takes ~28s per call (observed from "No reply from agent" appearing
+13s after the 15s callGateway timeout). This makes the 15s announce window unachievable
+without a code change.
+
+**Goal:** Determine if GLM Flash variants are fast enough for the announce session (<15s
+first token) while preserving adequate quality for Bobby heartbeat summaries.
+
+**Models to benchmark:**
+
+| Model | ID | Expected latency | Quality notes |
+|---|---|---|---|
+| GLM-4.7 (current) | `zai/glm-4.7` | ~28s first call | Full quality, reasoning |
+| GLM-4.7 Flash | `zai/glm-4.7-flash` | TBD | Faster, same training data |
+| GLM-4.7 FlashX | `zai/glm-4.7-flashx` | TBD | Fastest variant |
+
+**Test plan:**
+
+1. **Baseline:** Record current Bobby heartbeat response times via OTel traces
+   (`serviceName=openclaw-gateway` in Grafana → Tempo). Look for LLM call duration spans
+   in Bobby cron runs.
+
+2. **Flash probe test:** From inside the container, run model probes to measure cold/warm
+   latency:
+   ```bash
+   ALLOC=$(nomad job status openclaw-gateway | grep ' run ' | awk '{print $1}')
+   nomad alloc exec $ALLOC sh -c 'node /app/openclaw.mjs models status --agent bobby --probe \
+     --probe-provider zai'
+   # Repeat for each model variant: glm-4.7-flash, glm-4.7-flashx
+   ```
+
+3. **Switch Bobby model temporarily** to `glm-4.7-flash` in `openclaw.json` (per-agent
+   `model.primary` override), restart gateway, observe 2-3 heartbeat cycles for:
+   - Does announce complete within 15s? (watch for delivery success in `cron list` output)
+   - Is the heartbeat summary quality acceptable? (compare in Discord #bobby)
+
+4. **Decision criteria:**
+   - If Flash completes announce in <15s AND produces acceptable summaries → switch Bobby
+     to Flash as default model.
+   - If Flash is still too slow → plan code change to raise `callGateway` timeout to 60s
+     in next image build.
+
+5. **OTel verification:** After gateway restart (which applies OTel endpoint change), confirm
+   traces appear in Grafana under `otel-collector` pipeline:
+   ```bash
+   curl -s http://192.168.252.7:13133/  # health check
+   # Then open Grafana → Explore → Tempo, search serviceName=openclaw-gateway
+   ```
+
+---
 
 ### v3.2 (2026-02-22)
 

@@ -150,6 +150,48 @@ All resolved correctly from inside the container:
 
 ---
 
+## Nomad CNI: No Hairpin NAT — `gateway.bind` Must Be `"custom"`
+
+Nomad CNI networking assigns containers a private IP (e.g. `10.0.2.100`). Unlike a
+standard Docker bridge, Nomad CNI does **not** support hairpin NAT — a container cannot
+connect to its own CNI IP from within the same network namespace.
+
+**Symptom:** `callGateway` IPC (used by cron announce delivery, agent-to-agent calls)
+times out with "gateway timeout after 15000ms" when `gateway.bind: "lan"` is set.
+
+**Root cause:** `gateway.bind: "lan"` causes `buildGatewayConnectionDetails` (in
+`src/gateway/call.ts`) to call `pickPrimaryLanIPv4()` and build a `ws://10.0.2.x:18789`
+URL for local IPC. The container cannot reach its own CNI IP, so the connection hangs.
+
+**Fix:** Set `gateway.bind: "custom"` in `openclaw.json`. This causes `callGateway` to
+use `ws://127.0.0.1:18789` (loopback), which always works inside the container.
+
+The gateway **server** bind address is controlled separately by the `OPENCLAW_GATEWAY_BIND`
+env var in the Nomad job spec (set to `"lan"` → server binds `0.0.0.0:18789`). These two
+code paths are independent: the config file controls the client URL; the env var controls
+the server bind host.
+
+**Current config:**
+```json
+"gateway": {
+  "bind": "custom"
+}
+```
+
+**Nomad job env (unchanged — controls server bind only):**
+```
+OPENCLAW_GATEWAY_BIND = "lan"   ← server binds 0.0.0.0, reachable by Traefik
+```
+
+**Note:** `gateway.bind: "custom"` without `gateway.customBindHost` is valid — the Zod
+schema accepts `"custom"` as a literal. `customBindHost` is in the TypeScript types but
+**not** in the Zod schema (`.strict()` rejects it as an unknown key). Attempting to set
+`customBindHost: "0.0.0.0"` crashes the gateway at startup. The fallback in
+`resolveGatewayBindHost("custom", undefined)` returns `"0.0.0.0"` anyway, so the server
+still binds correctly via the env var.
+
+---
+
 ## Historical Note: extra_hosts Workaround (Removed)
 
 An earlier version of this file documented an `extra_hosts` workaround in
